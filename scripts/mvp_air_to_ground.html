@@ -2,42 +2,40 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>御剑·空对地 — MVP</title>
+<title>御剑·空对地 — MVP v2 山海云海</title>
 <style>
-  html,body{margin:0;padding:0;overflow:hidden;background:#cfe4dc;}
+  html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;}
   canvas{display:block;}
   #tip{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
        color:#25453f;font:13px/1.5 "Microsoft YaHei",sans-serif;
        background:rgba(244,239,226,.72);padding:6px 14px;border-radius:8px;
-       pointer-events:none;opacity:.85;}
+       pointer-events:none;opacity:.9;}
+  #loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+       color:#25453f;font:18px "Microsoft YaHei";}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<div id="tip">WASD 移动 · Q/E 降升 · 左键/J 剑诀 · 右键/K 雷池 · 空格 俯冲 · 1/2/3 视角 · R 重来</div>
+<div id="loading">山海素材载入中…</div>
+<div id="tip">WASD 移动 · Q/E 降升 · 左键/J 剑诀 · 右键/K 雷池 · 空格 俯冲 · 1/2/3 视角 · R 重来 · 海面无妖兽可暂歇</div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP — 单文件、零依赖、file:// 直接双击可玩
+ * 御剑·空对地 MVP v2 — 山海云海 + 角色素材
  * 定位：docs/009 P0 手感验证原型（非生产版）
- * 核心动词：御剑在空中 → 锁定地面 → 空对地打击
- * 渲染：手写相机 + 透视投影；地面为高度场网格；敌人为切片体堆叠
+ * 相对 v1：地面扩大、地形山海分化、云层、4 张水墨角色素材
+ * 素材：scripts/assets/*_cut.png（AI 生成 + 08_strip_png_bg.js 抠白底）
+ * 若素材加载失败，自动回退到程序化切片体绘制（保证只拷 HTML 也能玩）
  * ============================================================ */
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let W, H, focal;
 const FOV = 62 * Math.PI / 180;
+function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; focal=(H/2)/Math.tan(FOV/2); }
+window.addEventListener('resize', resize); resize();
 
-function resize(){
-  W = canvas.width  = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-  focal = (H/2) / Math.tan(FOV/2);
-}
-window.addEventListener('resize', resize);
-resize();
-
-/* ---------- 极简向量库 ---------- */
-const V = {
+/* ---------- 向量 ---------- */
+const V={
   add:(a,b)=>({x:a.x+b.x,y:a.y+b.y,z:a.z+b.z}),
   sub:(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}),
   mul:(a,s)=>({x:a.x*s,y:a.y*s,z:a.z*s}),
@@ -49,311 +47,279 @@ const V = {
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 
-/* ---------- 地形高度场（起伏山丘） ---------- */
-function terrainH(x,z){
-  return Math.sin(x*0.010)*7 + Math.cos(z*0.013)*5 + Math.sin((x*0.6+z)*0.014)*6 - 5;
+/* ---------- 山海地形 ---------- */
+// 大陆轮廓：>0 陆地，<0 海洋。原点附近为陆地，向 -x 方向入海
+function continent(x,z){
+  return Math.sin(x*0.005+0.5)*Math.cos(z*0.004)
+       + 0.3*Math.sin(z*0.011);
 }
+function terrainH(x,z){
+  const c=continent(x,z);
+  if(c<0.05) return -6+c*4;                       // 海床（低于海平面 0）
+  const mountain=Math.pow(Math.max(0,Math.sin(x*0.011)*Math.cos(z*0.009)),2)*26;
+  const hills=Math.sin(x*0.022+z*0.013)*3.5+Math.cos(z*0.019-x*0.008)*3;
+  return 1+c*4+mountain+hills;
+}
+function isSea(x,z){ return terrainH(x,z)<0; }
+
+/* ---------- 角色素材 ---------- */
+const sprites={};
+const spriteFiles={player:'sword_immortal_cut.png',beast:'beast_cut.png',
+                   archer:'dark_cultivator_cut.png',boss:'qilin_boss_cut.png'};
+let spritesReady=false;
+function loadSprites(){
+  let left=Object.keys(spriteFiles).length;
+  for(const k in spriteFiles){
+    const im=new Image();
+    im.onload=im.onerror=()=>{ if(--left<=0){spritesReady=true;
+      const l=document.getElementById('loading'); if(l) l.style.display='none';} };
+    im.src='assets/'+spriteFiles[k];
+    sprites[k]=im;
+  }
+}
+loadSprites();
 
 /* ---------- 状态 ---------- */
-let game = { started:false, over:false, score:0, kills:0, time:0, flash:0 };
+let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
+let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
+            trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null};
+let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
+         pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
+         f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
+let enemies=[],bolts=[],zones=[],particles=[],dmgNums=[],eBullets=[],clouds=[];
 
-let player = {
-  pos:{x:0,y:30,z:0},
-  hp:100, maxHp:100, qi:100, maxQi:100,
-  trail:[], dir:{x:0,y:0,z:-1},
-  inv:0, dive:null
-};
-
-let cam = {
-  yaw:0, pitchIdx:1, dist:38,
-  pitches:[25,45,70],
-  pos:{x:0,y:0,z:0}, target:{x:0,y:0,z:0},
-  f:{x:0,y:0,z:-1}, r:{x:1,y:0,z:0}, u:{x:0,y:1,z:0}
-};
-
-let enemies = [], bolts = [], zones = [], particles = [], dmgNums = [], eBullets = [];
+/* ---------- 云 ---------- */
+function initClouds(){
+  clouds=[];
+  for(let i=0;i<26;i++) clouds.push({
+    x:(Math.random()-0.5)*900, z:(Math.random()-0.5)*900,
+    y:52+Math.random()*58, s:11+Math.random()*15,
+    drift:(Math.random()-0.5)*2.2, phase:Math.random()*6.28
+  });
+}
 
 /* ---------- 输入 ---------- */
-const keys = {};
-const mouse = {x:W/2, y:H/2, down:false};
-window.addEventListener('keydown', e=>{
-  const k=e.key.toLowerCase();
-  keys[k]=true;
-  if(k==='1') cam.pitchIdx=0;
-  if(k==='2') cam.pitchIdx=1;
-  if(k==='3') cam.pitchIdx=2;
-  if(k==='r') reset();
-  if(k==='j') castBolt();
-  if(k==='k') castZone();
-  if(e.code==='Space'){ e.preventDefault(); startDive(); }
+const keys={}, mouse={x:W/2,y:H/2};
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase(); keys[k]=true;
+  if(k==='1')cam.pitchIdx=0; if(k==='2')cam.pitchIdx=1; if(k==='3')cam.pitchIdx=2;
+  if(k==='r')reset(); if(k==='j')castBolt(); if(k==='k')castZone();
+  if(e.code==='Space'){e.preventDefault();startDive();}
 });
-window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()]=false; });
-window.addEventListener('mousemove', e=>{ mouse.x=e.clientX; mouse.y=e.clientY; });
-window.addEventListener('mousedown', e=>{
-  if(!game.started){ game.started=true; return; }
-  if(game.over){ reset(); return; }
-  if(e.button===0) castBolt();
-  if(e.button===2) castZone();
+window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+window.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;});
+window.addEventListener('mousedown',e=>{
+  if(!game.started){game.started=true;return;}
+  if(game.over){reset();return;}
+  if(e.button===0)castBolt(); if(e.button===2)castZone();
 });
-window.addEventListener('contextmenu', e=>e.preventDefault());
+window.addEventListener('contextmenu',e=>e.preventDefault());
 
-/* ---------- 相机基向量与投影 ---------- */
+/* ---------- 相机与投影 ---------- */
 function updateCamera(dt){
   const p=player.pos;
   const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
   const pitch=cam.pitches[cam.pitchIdx];
-  const upOff = 8 + (pitch-25)*0.52;   // 俯角越大，相机越高
-  const desired={
-    x:p.x - fwd.x*cam.dist,
-    y:p.y + upOff,
-    z:p.z - fwd.z*cam.dist
-  };
+  const upOff=8+(pitch-25)*0.52;
+  const desired={x:p.x-fwd.x*cam.dist,y:p.y+upOff,z:p.z-fwd.z*cam.dist};
   cam.pos.x=lerp(cam.pos.x,desired.x,1-Math.exp(-7*dt));
   cam.pos.y=lerp(cam.pos.y,desired.y,1-Math.exp(-7*dt));
   cam.pos.z=lerp(cam.pos.z,desired.z,1-Math.exp(-7*dt));
-  cam.target={x:p.x+fwd.x*10, y:p.y-4, z:p.z+fwd.z*10};
-
+  cam.target={x:p.x+fwd.x*10,y:p.y-4,z:p.z+fwd.z*10};
   cam.f=V.norm(V.sub(cam.target,cam.pos));
   cam.r=V.norm(V.cross(cam.f,{x:0,y:1,z:0}));
   cam.u=V.cross(cam.r,cam.f);
 }
-
 function project(p){
-  const dx=p.x-cam.pos.x, dy=p.y-cam.pos.y, dz=p.z-cam.pos.z;
+  const dx=p.x-cam.pos.x,dy=p.y-cam.pos.y,dz=p.z-cam.pos.z;
   const z=dx*cam.f.x+dy*cam.f.y+dz*cam.f.z;
-  if(z<1.2) return null;
+  if(z<1.2)return null;
   const x=dx*cam.r.x+dy*cam.r.y+dz*cam.r.z;
   const y=dx*cam.u.x+dy*cam.u.y+dz*cam.u.z;
   const s=focal/z;
-  return {x:W/2+x*s, y:H/2-y*s, s, z};
+  return {x:W/2+x*s,y:H/2-y*s,s,z};
 }
-
-/* 鼠标射线打到地面（y=0 平面，再吸附到地形高度） */
 function mouseToGround(){
-  const nx=(mouse.x-W/2)/focal, ny=(H/2-mouse.y)/focal;
-  const dir=V.norm(V.add(cam.f, V.add(V.mul(cam.r,nx), V.mul(cam.u,ny))));
-  if(Math.abs(dir.y)<1e-4) return null;
-  const t=(0-cam.pos.y)/dir.y;
-  if(t<=0) return null;
+  const nx=(mouse.x-W/2)/focal,ny=(H/2-mouse.y)/focal;
+  const dir=V.norm(V.add(cam.f,V.add(V.mul(cam.r,nx),V.mul(cam.u,ny))));
+  if(Math.abs(dir.y)<1e-4)return null;
+  const t=(0-cam.pos.y)/dir.y; if(t<=0)return null;
   const hit=V.add(cam.pos,V.mul(dir,t));
-  const d=Math.hypot(hit.x-player.pos.x,hit.z-player.pos.z);
-  if(d>220) return null;               // 太远的目标不接受
+  if(Math.hypot(hit.x-player.pos.x,hit.z-player.pos.z)>260)return null;
   hit.y=terrainH(hit.x,hit.z);
   return hit;
 }
 
-/* ---------- 攻击动作 ---------- */
+/* ---------- 攻击 ---------- */
 function castBolt(){
-  if(!game.started||game.over||player.qi<8) return;
-  const aim=mouseToGround(); if(!aim) return;
+  if(!game.started||game.over||player.qi<8)return;
+  const aim=mouseToGround(); if(!aim)return;
   player.qi-=8;
-  bolts.push({
-    pos:{...player.pos}, aim,
-    dir:V.norm(V.sub(aim,player.pos)),
-    speed:120, life:2.2, dmg:26, rad:10, kind:'bolt'
-  });
+  bolts.push({pos:{...player.pos},aim,dir:V.norm(V.sub(aim,player.pos)),
+              speed:120,life:2.4,dmg:26,rad:10});
 }
-
 function castZone(){
-  if(!game.started||game.over||player.qi<25) return;
-  const aim=mouseToGround(); if(!aim) return;
-  player.qi-=25;
-  zones.push({x:aim.x,z:aim.z,y:aim.y,r:17,life:4.2,tick:0,dmg:11});
-  burst(aim, 18, '#ffd76a', 2.2);
+  if(!game.started||game.over||player.qi<25)return;
+  const aim=mouseToGround(); if(!aim)return;
+  player.qi-=25; zones.push({x:aim.x,z:aim.z,y:aim.y,r:17,life:4.2,tick:0,dmg:11});
+  burst(aim,18,'#ffd76a',2.2);
 }
-
 function startDive(){
-  if(!game.started||game.over||player.dive||player.qi<12) return;
-  player.qi-=12;
-  player.dive={t:0, startY:player.pos.y, phase:'down', hit:new Set()};
+  if(!game.started||game.over||player.dive||player.qi<12)return;
+  player.qi-=12; player.dive={t:0,startY:player.pos.y,phase:'down',hit:new Set()};
 }
 
 /* ---------- 敌人 ---------- */
-function spawnEnemy(){
-  const a=Math.random()*Math.PI*2, r=45+Math.random()*90;
-  const x=player.pos.x+Math.cos(a)*r, z=player.pos.z+Math.sin(a)*r;
+function spawnEnemy(boss){
+  let x,z,tries=0;
+  // 只在陆地生成（海面是玩家的安全区）
+  do{
+    const a=Math.random()*Math.PI*2,r=55+Math.random()*110;
+    x=player.pos.x+Math.cos(a)*r; z=player.pos.z+Math.sin(a)*r;
+    tries++;
+  }while(isSea(x,z)&&tries<24);
+  if(isSea(x,z)){x=player.pos.x+70;z=player.pos.z;}
   enemies.push({
     x,z,y:terrainH(x,z),
-    hp:64, maxHp:64, r:5,
-    type: Math.random()<0.28 ? 'archer' : 'beast',
-    wander:Math.random()*6.28, cd:Math.random()*2, hitCd:0,
-    hurt:0
+    hp:boss?360:64,maxHp:boss?360:64,r:boss?9:5,
+    type:boss?'boss':(Math.random()<0.28?'archer':'beast'),
+    wander:Math.random()*6.28,cd:Math.random()*2,hitCd:0,hurt:0
   });
 }
-
-function hurtEnemy(e, dmg){
-  if(e.hp<=0) return;
-  e.hp-=dmg; e.hurt=0.18;
-  dmgNums.push({p:{x:e.x,y:e.y+10,z:e.z},txt:Math.round(dmg),life:0.9,color:'#ffe08a'});
-  burst({x:e.x,y:e.y+4,z:e.z}, 6, '#c8503c', 1.3);
+function hurtEnemy(e,dmg){
+  if(e.hp<=0)return;
+  e.hp-=dmg;e.hurt=0.18;
+  dmgNums.push({p:{x:e.x,y:e.y+11,z:e.z},txt:Math.round(dmg),life:0.9,color:'#ffe08a'});
+  burst({x:e.x,y:e.y+4,z:e.z},6,'#c8503c',1.3);
   if(e.hp<=0){
-    game.score+=10; game.kills++;
-    burst({x:e.x,y:e.y+5,z:e.z}, 20, '#d9a441', 2.4);
+    game.score+=e.type==='boss'?100:10; game.kills++;
+    burst({x:e.x,y:e.y+5,z:e.z},e.type==='boss'?40:20,'#d9a441',2.4);
   }
 }
-
-/* ---------- 粒子 ---------- */
 function burst(pos,n,color,spd){
   for(let i=0;i<n;i++){
-    const a=Math.random()*Math.PI*2, e=Math.random()*Math.PI-Math.PI/2;
-    particles.push({
-      p:{...pos},
-      v:{x:Math.cos(a)*Math.cos(e)*spd*(0.4+Math.random()),
-         y:Math.sin(e)*spd*(0.4+Math.random())+2,
-         z:Math.sin(a)*Math.cos(e)*spd*(0.4+Math.random())},
-      life:0.5+Math.random()*0.6, max:1.1, color, size:2+Math.random()*3
-    });
+    const a=Math.random()*Math.PI*2,e=Math.random()*Math.PI-Math.PI/2;
+    particles.push({p:{...pos},v:{x:Math.cos(a)*Math.cos(e)*spd*(0.4+Math.random()),
+      y:Math.sin(e)*spd*(0.4+Math.random())+2,z:Math.sin(a)*Math.cos(e)*spd*(0.4+Math.random())},
+      life:0.5+Math.random()*0.6,max:1.1,color,size:2+Math.random()*3});
   }
 }
 
 /* ---------- 重置 ---------- */
 function reset(){
-  game={started:true,over:false,score:0,kills:0,time:0,flash:0};
-  player={pos:{x:0,y:30,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
+  game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
+  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
           trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null};
   enemies=[];bolts=[];zones=[];particles=[];dmgNums=[];eBullets=[];
-  for(let i=0;i<9;i++) spawnEnemy();
-  cam.yaw=0; cam.pitchIdx=1;
+  for(let i=0;i<10;i++)spawnEnemy(false);
+  initClouds(); cam.yaw=0;cam.pitchIdx=1;
 }
 
 /* ---------- 更新 ---------- */
 function update(dt){
-  if(!game.started||game.over) return;
-  game.time+=dt;
-  game.flash=Math.max(0,game.flash-dt*2.5);
+  if(!game.started||game.over)return;
+  game.time+=dt; game.flash=Math.max(0,game.flash-dt*2.5);
   player.inv=Math.max(0,player.inv-dt);
-  player.qi=clamp(player.qi+dt*7,0,player.maxQi);
+  // 海面上空灵力回复更快（安全区）
+  player.qi=clamp(player.qi+dt*(isSea(player.pos.x,player.pos.z)?11:7),0,player.maxQi);
 
-  // 移动
   const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
   const right={x:Math.cos(cam.yaw),y:0,z:Math.sin(cam.yaw)};
   let mf=0,ms=0;
-  if(keys['w']||keys['arrowup'])    mf+=1;
-  if(keys['s']||keys['arrowdown'])  mf-=1;
-  if(keys['a']||keys['arrowleft'])  ms-=1;
-  if(keys['d']||keys['arrowright']) ms+=1;
-  const spd=34;
-  const vx=(fwd.x*mf+right.x*ms), vz=(fwd.z*mf+right.z*ms);
-  player.pos.x+=vx*spd*dt;
-  player.pos.z+=vz*spd*dt;
+  if(keys['w']||keys['arrowup'])mf+=1; if(keys['s']||keys['arrowdown'])mf-=1;
+  if(keys['a']||keys['arrowleft'])ms-=1; if(keys['d']||keys['arrowright'])ms+=1;
+  const spd=36,vx=fwd.x*mf+right.x*ms,vz=fwd.z*mf+right.z*ms;
+  player.pos.x+=vx*spd*dt; player.pos.z+=vz*spd*dt;
   if(Math.abs(vx)+Math.abs(vz)>0.01){
     player.dir=V.norm({x:vx,y:0,z:vz});
     cam.yaw=lerp(cam.yaw,Math.atan2(player.dir.x,-player.dir.z),1-Math.exp(-1.6*dt));
   }
-
-  // 升降 / 俯冲
   if(player.dive){
     const d=player.dive; d.t+=dt;
     if(d.phase==='down'){
-      const groundY=terrainH(player.pos.x,player.pos.z)+4;
-      player.pos.y=lerp(player.pos.y,groundY,1-Math.exp(-9*dt));
-      // 俯冲路径杀伤
+      const gy=terrainH(player.pos.x,player.pos.z)+4;
+      player.pos.y=lerp(player.pos.y,gy,1-Math.exp(-9*dt));
       for(const e of enemies){
-        if(d.hit.has(e)) continue;
-        if(Math.hypot(e.x-player.pos.x,e.z-player.pos.z)<9 && player.pos.y<e.y+16){
+        if(d.hit.has(e))continue;
+        if(Math.hypot(e.x-player.pos.x,e.z-player.pos.z)<(e.r+5) && player.pos.y<e.y+16){
           d.hit.add(e); hurtEnemy(e,46);
         }
       }
-      if(d.t>0.62 || player.pos.y<groundY+2){ d.phase='up'; d.t=0; }
+      if(d.t>0.62||player.pos.y<gy+2){d.phase='up';d.t=0;}
     }else{
       player.pos.y=lerp(player.pos.y,d.startY,1-Math.exp(-4*dt));
-      if(d.t>0.95) player.dive=null;
+      if(d.t>0.95)player.dive=null;
     }
   }else{
-    if(keys['e']) player.pos.y+=26*dt;
-    if(keys['q']) player.pos.y-=26*dt;
+    if(keys['e'])player.pos.y+=26*dt;
+    if(keys['q'])player.pos.y-=26*dt;
   }
-  player.pos.y=clamp(player.pos.y, terrainH(player.pos.x,player.pos.z)+5, 130);
-
-  // 飞剑拖尾
+  const ground=terrainH(player.pos.x,player.pos.z);
+  player.pos.y=clamp(player.pos.y,Math.max(ground,0)+5,150);
   player.trail.push({...player.pos});
-  if(player.trail.length>22) player.trail.shift();
+  if(player.trail.length>22)player.trail.shift();
 
-  // 敌人
+  // 云漂移
+  for(const c of clouds){ c.x+=c.drift*dt*3; if(c.x>500)c.x-=1000; if(c.x<-500)c.x+=1000; }
+
   for(const e of enemies){
-    e.hurt=Math.max(0,e.hurt-dt);
-    e.hitCd=Math.max(0,e.hitCd-dt);
-    e.cd-=dt;
+    e.hurt=Math.max(0,e.hurt-dt); e.hitCd=Math.max(0,e.hitCd-dt); e.cd-=dt;
     e.wander+=dt*0.7;
-    const dx=player.pos.x-e.x, dz=player.pos.z-e.z;
-    const dist=Math.hypot(dx,dz);
-    if(e.type==='beast'){
-      if(dist<52){
-        const s=8*dt; e.x+=dx/dist*s; e.z+=dz/dist*s;
-      }else{
-        e.x+=Math.cos(e.wander)*4*dt; e.z+=Math.sin(e.wander)*4*dt;
-      }
-      // 近身扑击
-      if(dist<13 && e.cd<=0 && player.pos.y<e.y+22 && player.inv<=0){
-        hurtPlayer(10); e.cd=1.6;
-      }
-    }else{ // archer 远程
-      if(dist<70 && e.cd<=0){
+    const dx=player.pos.x-e.x,dz=player.pos.z-e.z,dist=Math.hypot(dx,dz)||1;
+    if(e.type==='boss'){
+      if(dist<90){const s=7*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
+      if(dist<26&&e.cd<=0&&player.pos.y<e.y+30){hurtPlayer(18);e.cd=1.4;burst({x:e.x,y:e.y+8,z:e.z},14,'#ffd76a',2.4);}
+    }else if(e.type==='beast'){
+      if(dist<52){const s=8*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
+      else{e.x+=Math.cos(e.wander)*4*dt;e.z+=Math.sin(e.wander)*4*dt;}
+      if(dist<13&&e.cd<=0&&player.pos.y<e.y+22&&player.inv<=0){hurtPlayer(10);e.cd=1.6;}
+    }else{
+      if(dist<70&&e.cd<=0){
         const from={x:e.x,y:e.y+8,z:e.z};
-        const dir=V.norm(V.sub(player.pos,from));
-        eBullets.push({p:from,dir,speed:34,life:3});
-        e.cd=2.3;
+        eBullets.push({p:from,dir:V.norm(V.sub(player.pos,from)),speed:34,life:3});e.cd=2.3;
       }
-      if(dist>45){ e.x+=dx/dist*4*dt; e.z+=dz/dist*4*dt; }
+      if(dist>45){e.x+=dx/dist*4*dt;e.z+=dz/dist*4*dt;}
     }
     e.y=terrainH(e.x,e.z);
   }
-
-  // 敌方弹丸
   for(let i=eBullets.length-1;i>=0;i--){
-    const b=eBullets[i];
-    b.p=V.add(b.p,V.mul(b.dir,b.speed*dt)); b.life-=dt;
-    if(Math.hypot(b.p.x-player.pos.x,b.p.y-player.pos.y,b.p.z-player.pos.z)<6){
-      hurtPlayer(8); eBullets.splice(i,1); continue;
-    }
-    if(b.life<=0||b.p.y<terrainH(b.p.x,b.p.z)) eBullets.splice(i,1);
+    const b=eBullets[i]; b.p=V.add(b.p,V.mul(b.dir,b.speed*dt));b.life-=dt;
+    if(Math.hypot(b.p.x-player.pos.x,b.p.y-player.pos.y,b.p.z-player.pos.z)<6){hurtPlayer(8);eBullets.splice(i,1);continue;}
+    if(b.life<=0||b.p.y<terrainH(b.p.x,b.p.z))eBullets.splice(i,1);
   }
-
-  // 剑诀
   for(let i=bolts.length-1;i>=0;i--){
-    const b=bolts[i];
-    b.pos=V.add(b.pos,V.mul(b.dir,b.speed*dt)); b.life-=dt;
-    if(Math.random()<0.6) particles.push({p:{...b.p},v:{x:0,y:0,z:0},life:0.25,max:0.25,color:'#8ff0e0',size:2.5});
-    if(Math.hypot(b.aim.x-b.pos.x,b.aim.z-b.pos.z)<3 || b.life<=0){
+    const b=bolts[i];b.pos=V.add(b.pos,V.mul(b.dir,b.speed*dt));b.life-=dt;
+    if(Math.random()<0.6)particles.push({p:{...b.pos},v:{x:0,y:0,z:0},life:0.25,max:0.25,color:'#8ff0e0',size:2.5});
+    if(Math.hypot(b.aim.x-b.pos.x,b.aim.z-b.pos.z)<3||b.life<=0){
       burst(b.pos,14,'#8ff0e0',2.0);
-      for(const e of enemies) if(Math.hypot(e.x-b.pos.x,e.z-b.pos.z)<b.rad) hurtEnemy(e,b.dmg);
+      for(const e of enemies)if(Math.hypot(e.x-b.pos.x,e.z-b.pos.z)<b.rad)hurtEnemy(e,b.dmg);
       bolts.splice(i,1);
     }
   }
-
-  // 雷池
   for(let i=zones.length-1;i>=0;i--){
-    const z=zones[i]; z.life-=dt; z.tick-=dt;
-    if(z.tick<=0){
-      z.tick=0.5;
-      for(const e of enemies) if(Math.hypot(e.x-z.x,e.z-z.z)<z.r) hurtEnemy(e,z.dmg);
-      burst({x:z.x,y:z.y+2,z:z.z},4,'#ffe08a',1.8);
-    }
-    if(z.life<=0) zones.splice(i,1);
+    const z=zones[i];z.life-=dt;z.tick-=dt;
+    if(z.tick<=0){z.tick=0.5;
+      for(const e of enemies)if(Math.hypot(e.x-z.x,e.z-z.z)<z.r)hurtEnemy(e,z.dmg);
+      burst({x:z.x,y:z.y+2,z:z.z},4,'#ffe08a',1.8);}
+    if(z.life<=0)zones.splice(i,1);
   }
-
-  // 粒子与伤害数字
   for(let i=particles.length-1;i>=0;i--){
-    const p=particles[i];
-    p.p=V.add(p.p,V.mul(p.v,dt)); p.v.y-=9*dt; p.life-=dt;
-    if(p.life<=0) particles.splice(i,1);
+    const p=particles[i];p.p=V.add(p.p,V.mul(p.v,dt));p.v.y-=9*dt;p.life-=dt;
+    if(p.life<=0)particles.splice(i,1);
   }
   for(let i=dmgNums.length-1;i>=0;i--){
-    const d=dmgNums[i]; d.p.y+=14*dt; d.life-=dt;
-    if(d.life<=0) dmgNums.splice(i,1);
+    const d=dmgNums[i];d.p.y+=14*dt;d.life-=dt;if(d.life<=0)dmgNums.splice(i,1);
   }
-
-  // 补充敌人
   enemies=enemies.filter(e=>e.hp>0);
-  while(enemies.length<9) spawnEnemy();
-
+  while(enemies.length<10)spawnEnemy(false);
+  // 击杀 5 个后刷一只神兽 Boss
+  if(!game.bossSpawned&&game.kills>=5){spawnEnemy(true);game.bossSpawned=true;}
   updateCamera(dt);
 }
-
 function hurtPlayer(d){
-  if(player.inv>0) return;
-  player.hp-=d; player.inv=0.6; game.flash=1;
-  if(player.hp<=0){ player.hp=0; game.over=true; }
+  if(player.inv>0)return;
+  player.hp-=d;player.inv=0.6;game.flash=1;
+  if(player.hp<=0){player.hp=0;game.over=true;}
 }
 
 /* ============================================================
@@ -361,279 +327,266 @@ function hurtPlayer(d){
  * ============================================================ */
 function drawSky(){
   const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#bcd8d2'); g.addColorStop(0.5,'#e6ede3'); g.addColorStop(1,'#f4efe2');
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  // 日
+  g.addColorStop(0,'#a9cfca');g.addColorStop(0.5,'#e0eae0');g.addColorStop(1,'#f4efe2');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
   ctx.fillStyle='rgba(255,248,220,0.85)';
-  ctx.beginPath(); ctx.arc(W*0.74,H*0.17,42,0,Math.PI*2); ctx.fill();
-  // 远山剪影（随 yaw 视差）
-  ctx.fillStyle='rgba(70,98,94,0.16)';
-  ctx.beginPath(); ctx.moveTo(0,H*0.62);
+  ctx.beginPath();ctx.arc(W*0.74,H*0.16,42,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(70,98,94,0.15)';
+  ctx.beginPath();ctx.moveTo(0,H*0.62);
   for(let i=0;i<=48;i++){
-    const x=i/48*W;
-    const h=Math.sin(i*0.46+cam.yaw*2.2)*20+Math.cos(i*0.19-cam.yaw)*13;
+    const x=i/48*W,h=Math.sin(i*0.46+cam.yaw*2.2)*20+Math.cos(i*0.19-cam.yaw)*13;
     ctx.lineTo(x,H*0.55-h);
   }
-  ctx.lineTo(W,H*0.66); ctx.closePath(); ctx.fill();
+  ctx.lineTo(W,H*0.66);ctx.closePath();ctx.fill();
 }
 
+// 地形着色分段
+function terrainColor(h,dist,sea){
+  const t=clamp((h+8)/40,0,1);
+  const fog=clamp(1-dist/340,0.12,1);
+  let base;
+  if(sea){
+    base=h<-4?[32,84,116]:[74,146,160];        // 深海 / 浅海
+  }else if(h<2)  base=[214,198,150];            // 沙滩
+  else if(h<16)  base=[92,136,104];             // 草地
+  else if(h<28)  base=[138,136,124];            // 岩石
+  else           base=[226,230,224];            // 雪顶
+  const sky=[232,237,227];
+  return base.map((v,k)=>Math.round(v*fog+sky[k]*(1-fog)));
+}
 function drawTerrain(){
-  const step=24, range=9;
-  const cx=Math.round(player.pos.x/step), cz=Math.round(player.pos.z/step);
+  const step=30,range=13;                        // ±390 单位，比 v1 的 ±216 大得多
+  const cx=Math.round(player.pos.x/step),cz=Math.round(player.pos.z/step);
   const cells=[];
-  for(let i=-range;i<range;i++) for(let j=-range;j<range;j++){
-    const x0=(cx+i)*step, z0=(cz+j)*step, x1=x0+step, z1=z0+step;
-    const corners=[
-      {x:x0,y:terrainH(x0,z0),z:z0},
-      {x:x1,y:terrainH(x1,z0),z:z0},
-      {x:x1,y:terrainH(x1,z1),z:z1},
-      {x:x0,y:terrainH(x0,z1),z:z1}
-    ];
-    const center={x:(x0+x1)/2,y:terrainH((x0+x1)/2,(z0+z1)/2),z:(z0+z1)/2};
+  for(let i=-range;i<range;i++)for(let j=-range;j<range;j++){
+    const x0=(cx+i)*step,z0=(cz+j)*step,x1=x0+step,z1=z0+step;
+    const corners=[{x:x0,y:terrainH(x0,z0),z:z0},{x:x1,y:terrainH(x1,z0),z:z0},
+                   {x:x1,y:terrainH(x1,z1),z:z1},{x:x0,y:terrainH(x0,z1),z:z1}];
+    const mx=(x0+x1)/2,mz=(z0+z1)/2,my=terrainH(mx,mz);
+    const center={x:mx,y:my,z:mz};
     const depth=V.dot(V.sub(center,cam.pos),cam.f);
-    if(depth<3) continue;
-    const pr=corners.map(project);
-    if(pr.some(p=>!p)) continue;
-    cells.push({pr,depth,h:center.y});
+    if(depth<3)continue;
+    const pr=corners.map(project); if(pr.some(p=>!p))continue;
+    cells.push({pr,depth,h:my,sea:my<0,mx,mz});
   }
   cells.sort((a,b)=>b.depth-a.depth);
   for(const c of cells){
-    const t=clamp((c.h+12)/36,0,1);
-    const fog=clamp(1-c.depth/300,0.12,1);
-    const low=[72,114,103], high=[152,150,130], sky=[232,237,227];
-    const base=[0,1,2].map(k=>lerp(low[k],high[k],t));
-    const col=base.map((v,k)=>Math.round(v*fog+sky[k]*(1-fog)));
-    ctx.beginPath(); ctx.moveTo(c.pr[0].x,c.pr[0].y);
-    for(let i=1;i<4;i++) ctx.lineTo(c.pr[i].x,c.pr[i].y);
-    ctx.closePath();
-    ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`; ctx.fill();
-    ctx.strokeStyle='rgba(36,66,60,0.14)'; ctx.lineWidth=1; ctx.stroke();
+    const col=terrainColor(c.h,c.depth,c.sea);
+    // 海面波纹：亮度随时间轻微起伏
+    let fill=`rgb(${col[0]},${col[1]},${col[2]})`;
+    if(c.sea&&c.h>-4){
+      const wave=0.5+0.5*Math.sin(game.time*1.6+c.mx*0.05+c.mz*0.04);
+      fill=`rgba(${col[0]},${col[1]+Math.round(wave*18)},${col[2]+Math.round(wave*22)},0.95)`;
+    }
+    ctx.beginPath();ctx.moveTo(c.pr[0].x,c.pr[0].y);
+    for(let i=1;i<4;i++)ctx.lineTo(c.pr[i].x,c.pr[i].y);
+    ctx.closePath();ctx.fillStyle=fill;ctx.fill();
+    ctx.strokeStyle=c.sea?'rgba(30,80,110,0.12)':'rgba(36,66,60,0.13)';
+    ctx.lineWidth=1;ctx.stroke();
   }
 }
-
-function groundCircle(x,z,r,fill,stroke){
+function groundCircle(x,z,r,fill,stroke,h){
+  const yy=(h===undefined?terrainH(x,z):h)+0.5;
   const pts=[];
   for(let i=0;i<28;i++){
     const a=i/28*Math.PI*2;
-    const p=project({x:x+Math.cos(a)*r,y:terrainH(x,z)+0.5,z:z+Math.sin(a)*r});
-    if(p) pts.push(p);
+    const p=project({x:x+Math.cos(a)*r,y:yy,z:z+Math.sin(a)*r});if(p)pts.push(p);
   }
-  if(pts.length<3) return;
-  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
-  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+  if(pts.length<3)return;
+  ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);
   ctx.closePath();
   if(fill){ctx.fillStyle=fill;ctx.fill();}
   if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();}
 }
-
 function drawAim(){
-  if(!game.started||game.over) return;
-  const aim=mouseToGround(); if(!aim) return;
+  if(!game.started||game.over)return;
+  const aim=mouseToGround();if(!aim)return;
+  if(isSea(aim.x,aim.z)){ // 海面不通法术落点提示变红
+    groundCircle(aim.x,aim.z,10,null,'rgba(210,90,70,0.8)');return;
+  }
   const pulse=1+Math.sin(game.time*6)*0.08;
   groundCircle(aim.x,aim.z,10*pulse,null,'rgba(70,190,170,0.85)');
   groundCircle(aim.x,aim.z,2.5,'rgba(70,190,170,0.9)',null);
 }
-
 function drawZones(){
   for(const z of zones){
     const a=clamp(z.life/4.2,0,1);
-    groundCircle(z.x,z.z,z.r,`rgba(255,205,90,${0.10+0.10*a})`,`rgba(255,190,70,${0.5*a})`);
-    const rr=z.r*(0.4+0.6*(1-(z.life%0.5)/0.5));
-    groundCircle(z.x,z.z,rr,null,`rgba(255,240,180,${0.35*a})`);
+    groundCircle(z.x,z.z,z.r,`rgba(255,205,90,${0.10+0.10*a})`,`rgba(255,190,70,${0.5*a})`,z.y);
   }
 }
 
-function drawEnemy(e){
-  const slices=7, h=e.r*2.2;
-  const shadow=project({x:e.x,y:e.y+0.2,z:e.z});
-  if(shadow){
-    ctx.beginPath();
-    ctx.ellipse(shadow.x,shadow.y,e.r*shadow.s,e.r*shadow.s*0.34,0,0,Math.PI*2);
-    ctx.fillStyle='rgba(30,50,46,0.18)'; ctx.fill();
-  }
+/* ---------- 素材绘制（带程序化 fallback） ---------- */
+function spriteOK(k){ const im=sprites[k]; return im&&im.complete&&im.naturalWidth>0; }
+function drawSprite(k,wx,wy,wz,worldH,hurt){
+  if(!spriteOK(k))return false;
+  const im=sprites[k],p=project({x:wx,y:wy,z:wz});if(!p)return false;
+  const h=worldH*p.s,w=h, x=p.x-w/2,y=p.y-h;
+  ctx.drawImage(im,x,y,w,h);
+  if(hurt){ctx.save();ctx.globalAlpha=0.35;ctx.fillStyle='#ff5a44';
+    ctx.beginPath();ctx.ellipse(p.x,y+h*0.55,w*0.32,h*0.36,0,0,Math.PI*2);ctx.fill();ctx.restore();}
+  return true;
+}
+function drawFallbackEnemy(e){
+  const slices=7,h=e.r*2.2;
   for(let i=0;i<slices;i++){
-    const f=i/(slices-1);
-    const yy=e.y+f*h;
-    const rr=e.r*(0.5+Math.sin(f*Math.PI)*0.6);
-    const p=project({x:e.x,y:yy,z:e.z}); if(!p) continue;
-    ctx.beginPath();
-    ctx.ellipse(p.x,p.y,Math.max(1,rr*p.s),Math.max(1,rr*p.s*0.46),0,0,Math.PI*2);
-    const lit=e.hurt>0 ? '#f2a58e' : (e.type==='archer'?'#8c3d3d':'#6f3230');
-    ctx.fillStyle=lit; ctx.fill();
-  }
-  // 眼
-  const head=project({x:e.x,y:e.y+h*0.9,z:e.z});
-  if(head){
-    ctx.fillStyle='#ffe6a8';
-    ctx.beginPath(); ctx.arc(head.x-2*head.s*0.1,head.y,Math.max(1,head.s*0.14),0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(head.x+2*head.s*0.1,head.y,Math.max(1,head.s*0.14),0,Math.PI*2); ctx.fill();
-  }
-  // 血条
-  const bar=project({x:e.x,y:e.y+h+4,z:e.z});
-  if(bar){
-    const w=Math.max(18,26*bar.s/8);
-    ctx.fillStyle='rgba(20,30,28,0.5)'; ctx.fillRect(bar.x-w/2,bar.y,w,4);
-    ctx.fillStyle='#d9a441'; ctx.fillRect(bar.x-w/2,bar.y,w*(e.hp/e.maxHp),4);
+    const f=i/(slices-1),yy=e.y+f*h,rr=e.r*(0.5+Math.sin(f*Math.PI)*0.6);
+    const p=project({x:e.x,y:yy,z:e.z});if(!p)continue;
+    ctx.beginPath();ctx.ellipse(p.x,p.y,Math.max(1,rr*p.s),Math.max(1,rr*p.s*0.46),0,0,Math.PI*2);
+    ctx.fillStyle=e.hurt>0?'#f2a58e':(e.type==='archer'?'#8c3d3d':'#6f3230');ctx.fill();
   }
 }
-
+function drawEnemy(e){
+  const worldH=e.type==='boss'?16:(e.type==='archer'?8:7);
+  const key=e.type==='boss'?'boss':(e.type==='archer'?'archer':'beast');
+  const shadow=project({x:e.x,y:e.y+0.2,z:e.z});
+  if(shadow){ctx.beginPath();ctx.ellipse(shadow.x,shadow.y,e.r*shadow.s,e.r*shadow.s*0.34,0,0,Math.PI*2);
+    ctx.fillStyle='rgba(30,50,46,0.18)';ctx.fill();}
+  if(!drawSprite(key,e.x,e.y,e.z,worldH,e.hurt>0))drawFallbackEnemy(e);
+  // 血条
+  const bar=project({x:e.x,y:e.y+worldH+3,z:e.z});
+  if(bar){const w=Math.max(20,(e.type==='boss'?52:28)*bar.s/8);
+    ctx.fillStyle='rgba(20,30,28,0.5)';ctx.fillRect(bar.x-w/2,bar.y,w,4);
+    ctx.fillStyle=e.type==='boss'?'#d96a41':'#d9a441';
+    ctx.fillRect(bar.x-w/2,bar.y,w*(e.hp/e.maxHp),4);
+    if(e.type==='boss'){ctx.fillStyle='#f4efe2';ctx.font='12px "Microsoft YaHei"';ctx.fillText('上古神兽 · 麒麟',bar.x-w/2,bar.y-5);}
+  }
+}
 function drawPlayer(){
-  // 拖尾
-  const tr=player.trail;
-  ctx.lineCap='round';
+  const tr=player.trail;ctx.lineCap='round';
   for(let i=1;i<tr.length;i++){
-    const a=project(tr[i-1]), b=project(tr[i]); if(!a||!b) continue;
+    const a=project(tr[i-1]),b=project(tr[i]);if(!a||!b)continue;
     ctx.strokeStyle=`rgba(110,235,215,${0.04+0.30*i/tr.length})`;
     ctx.lineWidth=Math.max(1,10*i/tr.length*Math.min(2,b.s/12));
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
   }
-  const head=project(player.pos); if(!head) return;
-  const tailP=V.add(player.pos,V.mul(player.dir,-7));
-  tailP.y-=1;
-  const tail=project(tailP) || {x:head.x,y:head.y+10,s:head.s};
-  // 剑身（半宽用投影缩放的合理系数，避免近处变成巨大色块）
-  const dx=head.x-tail.x, dy=head.y-tail.y, l=Math.hypot(dx,dy)||1;
-  const nx=-dy/l, ny=dx/l, w=Math.max(3,0.7*head.s);
-  ctx.save();
-  ctx.shadowBlur=16; ctx.shadowColor='#6fe8d8';
-  ctx.beginPath();
-  ctx.moveTo(head.x,head.y);
-  ctx.lineTo(tail.x+nx*w,tail.y+ny*w);
-  ctx.lineTo(tail.x-nx*w,tail.y-ny*w);
-  ctx.closePath();
-  ctx.fillStyle='#e2fbf4'; ctx.fill();
-  ctx.restore();
-  // 御剑者（叠层小人）：半径用 0.7 世界单位量级，屏幕约 10px，不挡视线
-  for(let i=0;i<3;i++){
-    const p=project({x:player.pos.x,y:player.pos.y+1.2+i*1.2,z:player.pos.z});
-    if(!p) continue;
-    const rr=Math.max(1.5,(0.75-i*0.12)*p.s);
-    ctx.beginPath();
-    ctx.ellipse(p.x,p.y,rr,rr*0.72,0,0,Math.PI*2);
-    ctx.fillStyle='#2f6b66'; ctx.fill();
+  const p=project(player.pos);if(!p)return;
+  if(!drawSprite('player',player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
+    // fallback：小剑身 + 叠层骑手
+    const tailP=V.add(player.pos,V.mul(player.dir,-7));tailP.y-=1;
+    const tail=project(tailP)||{x:p.x,y:p.y+10,s:p.s};
+    const dx=p.x-tail.x,dy=p.y-tail.y,l=Math.hypot(dx,dy)||1;
+    const nx=-dy/l,ny=dx/l,w=Math.max(3,0.7*p.s);
+    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(tail.x+nx*w,tail.y+ny*w);
+    ctx.lineTo(tail.x-nx*w,tail.y-ny*w);ctx.closePath();
+    ctx.fillStyle='#e2fbf4';ctx.fill();
+    for(let i=0;i<3;i++){
+      const pp=project({x:player.pos.x,y:player.pos.y+1.2+i*1.2,z:player.pos.z});if(!pp)continue;
+      const rr=Math.max(1.5,(0.75-i*0.12)*pp.s);
+      ctx.beginPath();ctx.ellipse(pp.x,pp.y,rr,rr*0.72,0,0,Math.PI*2);
+      ctx.fillStyle='#2f6b66';ctx.fill();
+    }
   }
-  // 俯冲指示
-  if(player.dive){
-    groundCircle(player.pos.x,player.pos.z,12,null,'rgba(120,240,220,0.7)');
-  }
+  if(player.dive)groundCircle(player.pos.x,player.pos.z,12,null,'rgba(120,240,220,0.7)');
 }
-
+function drawClouds(){
+  const sorted=[...clouds].sort((a,b)=>{
+    const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
+    const db=V.dot(V.sub({x:b.x,y:b.y,z:b.z},cam.pos),cam.f);
+    return db-da;
+  });
+  ctx.save();
+  for(const c of sorted){
+    for(let k=0;k<4;k++){
+      const pp=project({x:c.x+(k-1.5)*c.s*0.6,y:c.y+Math.sin(k+c.phase)*2,z:c.z+k*1.5});
+      if(!pp)continue;
+      ctx.globalAlpha=0.20+0.10*Math.sin(game.time*0.5+c.phase);
+      ctx.beginPath();
+      ctx.ellipse(pp.x,pp.y,Math.max(1,c.s*pp.s*0.85),Math.max(1,c.s*pp.s*0.30),0,0,Math.PI*2);
+      ctx.fillStyle='#ffffff';ctx.fill();
+    }
+  }
+  ctx.restore();
+}
 function drawProjectiles(){
   for(const b of bolts){
-    const p=project(b.pos); if(!p) continue;
-    ctx.save(); ctx.shadowBlur=14; ctx.shadowColor='#8ff0e0';
-    ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2,p.s*0.5),0,Math.PI*2);
-    ctx.fillStyle='#d9fff8'; ctx.fill(); ctx.restore();
+    const p=project(b.pos);if(!p)continue;
+    ctx.save();ctx.shadowBlur=14;ctx.shadowColor='#8ff0e0';
+    ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,p.s*0.5),0,Math.PI*2);
+    ctx.fillStyle='#d9fff8';ctx.fill();ctx.restore();
   }
   for(const b of eBullets){
-    const p=project(b.p); if(!p) continue;
-    ctx.beginPath(); ctx.arc(p.x,p.y,Math.max(2,p.s*0.42),0,Math.PI*2);
-    ctx.fillStyle='#ff9a7a'; ctx.fill();
+    const p=project(b.p);if(!p)continue;
+    ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,p.s*0.42),0,Math.PI*2);
+    ctx.fillStyle='#ff9a7a';ctx.fill();
   }
   for(const p of particles){
-    const s=project(p.p); if(!s) continue;
+    const s=project(p.p);if(!s)continue;
     ctx.globalAlpha=clamp(p.life/p.max,0,1);
-    ctx.beginPath(); ctx.arc(s.x,s.y,Math.max(1,p.size*s.s*0.12),0,Math.PI*2);
-    ctx.fillStyle=p.color; ctx.fill();
+    ctx.beginPath();ctx.arc(s.x,s.y,Math.max(1,p.size*s.s*0.12),0,Math.PI*2);
+    ctx.fillStyle=p.color;ctx.fill();
   }
   ctx.globalAlpha=1;
   for(const d of dmgNums){
-    const s=project(d.p); if(!s) continue;
+    const s=project(d.p);if(!s)continue;
     ctx.globalAlpha=clamp(d.life/0.9,0,1);
     ctx.font=`bold ${Math.max(12,16*s.s*0.1)}px "Microsoft YaHei"`;
-    ctx.fillStyle=d.color; ctx.fillText(d.txt,s.x,s.y);
+    ctx.fillStyle=d.color;ctx.fillText(d.txt,s.x,s.y);
   }
   ctx.globalAlpha=1;
 }
-
 function drawHUD(){
-  // 血/灵力
   const bar=(x,y,w,h,v,max,c1,c2,label)=>{
-    ctx.fillStyle='rgba(24,44,40,0.55)'; ctx.fillRect(x,y,w,h);
-    const g=ctx.createLinearGradient(x,y,x+w,y);
-    g.addColorStop(0,c1); g.addColorStop(1,c2);
-    ctx.fillStyle=g; ctx.fillRect(x,y,w*clamp(v/max,0,1),h);
-    ctx.fillStyle='#f4efe2'; ctx.font='12px "Microsoft YaHei"';
+    ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(x,y,w,h);
+    const g=ctx.createLinearGradient(x,y,x+w,y);g.addColorStop(0,c1);g.addColorStop(1,c2);
+    ctx.fillStyle=g;ctx.fillRect(x,y,w*clamp(v/max,0,1),h);
+    ctx.fillStyle='#f4efe2';ctx.font='12px "Microsoft YaHei"';
     ctx.fillText(`${label} ${Math.round(v)}/${max}`,x,y-5);
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-
-  ctx.fillStyle='#25453f'; ctx.font='bold 20px "Microsoft YaHei"';
-  ctx.fillText('御剑 · 空对地',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2',22,30);
   ctx.font='13px "Microsoft YaHei"';
   ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,116);
-  ctx.fillText(`高度 ${Math.round(player.pos.y-terrainH(player.pos.x,player.pos.z))} 丈`,22,136);
-  ctx.fillText(`视角 ${cam.pitches[cam.pitchIdx]}°`,22,156);
-  const alt=player.pos.y-terrainH(player.pos.x,player.pos.z);
-  ctx.fillStyle='rgba(37,69,63,0.75)';
-  ctx.fillText(alt<18?'低空：俯冲伤害高':'高空：视野广、射程远',22,176);
-
-  // 准星
-  ctx.strokeStyle='rgba(37,69,63,0.7)'; ctx.lineWidth=1.5;
-  ctx.beginPath(); ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
-  ctx.moveTo(mouse.x-12,mouse.y); ctx.lineTo(mouse.x-4,mouse.y);
-  ctx.moveTo(mouse.x+4,mouse.y); ctx.lineTo(mouse.x+12,mouse.y);
-  ctx.stroke();
+  const ground=terrainH(player.pos.x,player.pos.z);
+  ctx.fillText(`高度 ${Math.round(player.pos.y-Math.max(ground,0))} 丈`,22,136);
+  ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°`,22,156);
+  ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
+  ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
+  ctx.moveTo(mouse.x+4,mouse.y);ctx.lineTo(mouse.x+12,mouse.y);ctx.stroke();
 }
-
 function drawOverlay(){
-  if(game.flash>0){
-    ctx.fillStyle=`rgba(200,60,50,${game.flash*0.28})`; ctx.fillRect(0,0,W,H);
-  }
+  if(game.flash>0){ctx.fillStyle=`rgba(200,60,50,${game.flash*0.28})`;ctx.fillRect(0,0,W,H);}
   if(!game.started){
-    ctx.fillStyle='rgba(20,36,33,0.62)'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#f4efe2'; ctx.textAlign='center';
-    ctx.font='bold 42px "Microsoft YaHei"'; ctx.fillText('御剑 · 空对地',W/2,H/2-70);
+    ctx.fillStyle='rgba(20,36,33,0.62)';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#f4efe2';ctx.textAlign='center';
+    ctx.font='bold 42px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地',W/2,H/2-76);
     ctx.font='16px "Microsoft YaHei"';
-    ctx.fillText('踩剑凌空，从天上打地面的妖兽',W/2,H/2-26);
-    ctx.fillText('WASD 移动 · Q/E 降升 · 左键/J 剑诀 · 右键/K 雷池 · 空格 俯冲',W/2,H/2+12);
-    ctx.fillText('1/2/3 切换 25°/45°/70° 视角',W/2,H/2+40);
-    ctx.fillStyle='#8fe0cc'; ctx.font='bold 18px "Microsoft YaHei"';
-    ctx.fillText('点击开始',W/2,H/2+92);
+    ctx.fillText('山海之间，御剑凌空，从天上打地面的妖兽',W/2,H/2-34);
+    ctx.fillText('WASD 移动 · Q/E 降升 · 左键剑诀 · 右键雷池 · 空格俯冲 · 1/2/3 视角',W/2,H/2+8);
+    ctx.fillText('飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',W/2,H/2+36);
+    ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText('点击开始',W/2,H/2+92);
     ctx.textAlign='left';
   }
   if(game.over){
-    ctx.fillStyle='rgba(20,36,33,0.7)'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#f4efe2'; ctx.textAlign='center';
-    ctx.font='bold 40px "Microsoft YaHei"'; ctx.fillText('道消',W/2,H/2-40);
-    ctx.font='18px "Microsoft YaHei"';
-    ctx.fillText(`击杀 ${game.kills} · 得分 ${game.score}`,W/2,H/2+6);
-    ctx.fillStyle='#8fe0cc'; ctx.fillText('按 R 或点击 重来',W/2,H/2+52);
+    ctx.fillStyle='rgba(20,36,33,0.7)';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#f4efe2';ctx.textAlign='center';
+    ctx.font='bold 40px "Microsoft YaHei"';ctx.fillText('道消',W/2,H/2-40);
+    ctx.font='18px "Microsoft YaHei"';ctx.fillText(`击杀 ${game.kills} · 得分 ${game.score}`,W/2,H/2+6);
+    ctx.fillStyle='#8fe0cc';ctx.fillText('按 R 或点击 重来',W/2,H/2+52);
     ctx.textAlign='left';
   }
 }
-
 function render(){
-  drawSky();
-  updateCamera(0.0001); // 确保首帧基向量就绪
-  drawTerrain();
-  drawAim();
-  drawZones();
+  drawSky(); updateCamera(0.0001);
+  drawTerrain(); drawAim(); drawZones();
   const sorted=[...enemies].sort((a,b)=>{
     const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
     const db=V.dot(V.sub({x:b.x,y:b.y,z:b.z},cam.pos),cam.f);
     return db-da;
   });
-  for(const e of sorted) drawEnemy(e);
+  for(const e of sorted)drawEnemy(e);
   drawPlayer();
-  drawProjectiles();
-  drawHUD();
-  drawOverlay();
+  drawClouds();                                  // 薄云覆盖玩家，营造穿云感
+  drawProjectiles(); drawHUD(); drawOverlay();
 }
-
-/* ---------- 主循环 ---------- */
 let last=performance.now();
 function loop(now){
-  let dt=(now-last)/1000; last=now;
-  dt=Math.min(dt,0.05);
-  update(dt);
-  render();
-  requestAnimationFrame(loop);
+  let dt=(now-last)/1000;last=now;dt=Math.min(dt,0.05);
+  update(dt);render();requestAnimationFrame(loop);
 }
-reset();
-game.started=false;
-requestAnimationFrame(loop);
+reset();game.started=false;requestAnimationFrame(loop);
 </script>
 </body>
 </html>
