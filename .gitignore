@@ -7,6 +7,7 @@ others/game_src_tree/
 others/game_src/
 others/local_site/
 others/godot_probe/
+others/clarity/
 others/*.png
 others/*.js
 others/*.html
