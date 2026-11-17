@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>御剑·空对地 — MVP v2 山海云海</title>
+<title>御剑·空对地 — MVP v2.2 自动斗法</title>
 <style>
   html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;}
   canvas{display:block;}
@@ -17,12 +17,13 @@
 <body>
 <canvas id="game"></canvas>
 <div id="loading">山海素材载入中…</div>
-<div id="tip">WASD 移动 · Q/E 降升 · 左键/J 剑诀 · 右键/K 雷池 · 空格 俯冲 · 1/2/3 视角 · R 重来 · 海面无妖兽可暂歇</div>
+<div id="tip">WASD 移动 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2 — 山海云海 + 角色素材
+ * 御剑·空对地 MVP v2.2 — 自动斗法 / 视野 / 三技能 / Boss 冲击波
  * 定位：docs/009 P0 手感验证原型（非生产版）
- * 相对 v1：地面扩大、地形山海分化、云层、4 张水墨角色素材
+ * 相对 v2.1：新增视野锥形、射程/灵力/冷却门禁、最大期望伤害自动决策；
+ *            飞剑术 / 火球 / 冰剑术三技能；敌修与 Boss 同技能；Boss 冲击波光柱。
  * 素材：scripts/assets/*_cut.png（AI 生成 + 08_strip_png_bg.js 抠白底）
  * 若素材加载失败，自动回退到程序化切片体绘制（保证只拷 HTML 也能玩）
  * ============================================================ */
@@ -34,7 +35,7 @@ const FOV = 62 * Math.PI / 180;
 function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; focal=(H/2)/Math.tan(FOV/2); }
 window.addEventListener('resize', resize); resize();
 
-/* ---------- 向量 ---------- */
+/* ---------- 向量与通用工具 ---------- */
 const V={
   add:(a,b)=>({x:a.x+b.x,y:a.y+b.y,z:a.z+b.z}),
   sub:(a,b)=>({x:a.x-b.x,y:a.y-b.y,z:a.z-b.z}),
@@ -46,6 +47,8 @@ const V={
 };
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
+const dist3=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+const horizDist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 
 /* ---------- 山海地形 ---------- */
 // 大陆轮廓：>0 陆地，<0 海洋。原点附近为陆地，向 -x 方向入海
@@ -79,14 +82,34 @@ function loadSprites(){
 }
 loadSprites();
 
+/* ---------- 规则常量 ---------- */
+// 1 世界单位 = 1 丈。射程按水平距离判定；动力航程按实际飞行路径累计。
+const GRAVITY = 24;
+const FREE_FALL_DMG_SCALE = 0.2;          // 失去动力后伤害变为 1/5
+const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
+const VISION_RANGE = 120;                 // 视野半径（丈）
+const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60°
+const SPELLS = {
+  sword:{key:'sword',name:'飞剑术',cd:1.0,cost:8,range:30,powerRange:30,
+         dmg:26,speed:78,homing:true,count:1,radius:0,color:'#8ff0e0'},
+  fire :{key:'fire', name:'火球',  cd:0.5,cost:14,range:40,powerRange:40,
+         dmg:34,speed:58,homing:true,count:1,radius:12,color:'#ff9a4d'},
+  ice  :{key:'ice',  name:'冰剑术',cd:0.5,cost:12,range:20,powerRange:20,
+         dmg:14,speed:92,homing:false,count:3,radius:0,color:'#9fd8ff'}
+};
+const SPELL_ORDER=['sword','fire','ice'];
+const BOSS_BEAM={range:50,radius:14,duration:1.0,tick:0.2,dmg:7,cd:4.0};
+
 /* ---------- 状态 ---------- */
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
 let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-            trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0};
+            trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
+            cds:{sword:0,fire:0,ice:0},autoLast:0,auto:true,showVision:false,
+            autoChoice:'—',lastCast:'—'};
 let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
          pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
          f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
-let enemies=[],bolts=[],zones=[],particles=[],dmgNums=[],eBullets=[],clouds=[];
+let enemies=[],bolts=[],beams=[],particles=[],dmgNums=[],clouds=[];
 
 /* ---------- 云 ---------- */
 function initClouds(){
@@ -102,8 +125,15 @@ function initClouds(){
 const keys={}, mouse={x:W/2,y:H/2};
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase(); keys[k]=true;
-  if(k==='1')cam.pitchIdx=0; if(k==='2')cam.pitchIdx=1; if(k==='3')cam.pitchIdx=2;
-  if(k==='r')reset(); if(k==='j')castBolt(); if(k==='k')castZone();
+  if(e.repeat)return;
+  if(k==='1')castManual('sword');
+  if(k==='2')castManual('fire');
+  if(k==='3')castManual('ice');
+  if(k==='j')castManual('sword'); if(k==='k')castManual('fire');
+  if(k==='z')cam.pitchIdx=0; if(k==='x')cam.pitchIdx=1; if(k==='c')cam.pitchIdx=2;
+  if(k==='f'){player.auto=!player.auto;player.autoChoice=player.auto?'自动开启':'自动关闭';}
+  if(k==='v')player.showVision=!player.showVision;
+  if(k==='r')reset();
   if(e.code==='Space'){e.preventDefault();startDive();}
 });
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
@@ -111,7 +141,8 @@ window.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;});
 window.addEventListener('mousedown',e=>{
   if(!game.started){game.started=true;return;}
   if(game.over){reset();return;}
-  if(e.button===0)castBolt(); if(e.button===2)castZone();
+  if(e.button===0)castManual('sword');
+  if(e.button===2)castManual('fire');
 });
 window.addEventListener('contextmenu',e=>e.preventDefault());
 
@@ -150,31 +181,226 @@ function mouseToGround(){
   return hit;
 }
 
-/* ---------- 攻击 ---------- */
-// 重力加速度（世界单位/秒²）：投射物走抛物线，而不是直线穿模
-const GRAVITY = 24;
-// 给定起点、目标、水平速度，解出能命中目标的初速度（含竖直分量）
+/* ---------- 视野 / 射程 / 自动决策 ---------- */
+function facingVec(yaw){ return {x:Math.sin(yaw),y:0,z:-Math.cos(yaw)}; }
+function entityPos(t){
+  if(!t)return {x:0,y:0,z:0};
+  if(t.pos)return t.pos;
+  return {x:t.x,y:t.y+(t.type==='boss'?10:6),z:t.z};
+}
+function targetAlive(t){
+  if(!t)return false;
+  if(t===player)return !game.over;
+  if(t.dummy)return true;
+  return t.hp>0 && enemies.includes(t);
+}
+function inVision(observer,target,facing,range=VISION_RANGE,half=VISION_HALF_ANGLE){
+  const dx=target.x-observer.x,dz=target.z-observer.z;
+  const d=Math.hypot(dx,dz);
+  if(d>range)return false;
+  if(d<0.001)return true;
+  const dot=(dx/d)*(facing.x||0)+(dz/d)*(facing.z||0);
+  return dot>=Math.cos(half);
+}
+// 期望伤害 / 冷却 作为评分；火球按 AoE 命中数，冰剑按无制导距离折减命中率。
+function evaluateAutoSpell(actorKey,casterPos,facing,targets,qi,cds){
+  let best=null;
+  for(const key of SPELL_ORDER){
+    const S=SPELLS[key];
+    if(cds[key]>0||qi<S.cost)continue;
+    for(const t of targets){
+      if(!targetAlive(t))continue;
+      const tp=entityPos(t);
+      if(!inVision(casterPos,tp,facing))continue;
+      const d=horizDist(casterPos,tp);
+      if(d>S.range)continue;
+      let expected=S.dmg*S.count;
+      if(S.radius>0){
+        const hit=targets.filter(o=>targetAlive(o)&&horizDist(entityPos(o),tp)<=S.radius).length;
+        expected=S.dmg*Math.max(1,hit);
+      }
+      if(!S.homing)expected*=clamp(1-d/S.range*0.35,0.55,0.9);
+      const score=expected/Math.max(S.cd,AUTO_MIN_INTERVAL);
+      if(!best||score>best.score)best={key,target:t,score,expected};
+    }
+  }
+  return best;
+}
+function tickCds(cds,dt){ for(const k in cds)cds[k]=Math.max(0,cds[k]-dt); }
+
+/* ---------- 弹道与技能释放 ---------- */
+// 给定起点、目标、水平速度，解出能命中目标高度的初速度（含竖直分量）
 function ballistic(from,to,horizSpeed){
   const dx=to.x-from.x, dz=to.z-from.z;
   const d=Math.hypot(dx,dz);
-  const T=Math.max(0.28, d/horizSpeed);              // 预计飞行时间
+  const T=Math.max(0.28, d/horizSpeed);
   return {
     x:dx/T, z:dz/T,
-    y:(to.y-from.y + 0.5*GRAVITY*T*T)/T             // 由 h=vy*T-½gT² 反解
+    y:(to.y-from.y + 0.5*GRAVITY*T*T)/T
   };
 }
-function castBolt(){
-  if(!game.started||game.over||player.qi<8)return;
-  const aim=mouseToGround(); if(!aim)return;
-  player.qi-=8;
-  const v=ballistic(player.pos,aim,110);
-  bolts.push({pos:{...player.pos},v,life:3.0,dmg:26,rad:10});
+function boltDamage(b){ return b.dmg*(b.powered?1:FREE_FALL_DMG_SCALE); }
+function launchSpell(ownerKey,from,target,key){
+  const S=SPELLS[key];
+  const tp=entityPos(target);
+  const speed=S.speed*(ownerKey==='player'?1:0.82);
+  const pushOne=(aim)=>{
+    const v=ballistic(from,aim,speed);
+    bolts.push({
+      kind:key,owner:ownerKey,pos:{...from},v,
+      target:S.homing?target:null,
+      dmg:S.dmg,radius:S.radius,color:S.color,
+      homing:S.homing,guided:S.homing,powered:true,
+      powerRange:S.powerRange,traveled:0,life:4.0,
+      size:key==='fire'?1.8:(key==='ice'?0.75:1.0)
+    });
+  };
+  if(S.count>1){
+    const dx=tp.x-from.x,dz=tp.z-from.z,d=Math.hypot(dx,dz)||1;
+    const sx=-dz/d,sz=dx/d;
+    for(let i=0;i<S.count;i++){
+      const off=(i-(S.count-1)/2)*3.6;
+      pushOne({x:tp.x+sx*off,y:tp.y+i*1.4,z:tp.z+sz*off});
+    }
+  }else pushOne(tp);
 }
-function castZone(){
-  if(!game.started||game.over||player.qi<25)return;
-  const aim=mouseToGround(); if(!aim)return;
-  player.qi-=25; zones.push({x:aim.x,z:aim.z,y:aim.y,r:17,life:4.2,tick:0,dmg:11});
-  burst(aim,18,'#ffd76a',2.2);
+function castSpellFor(ownerKey,key,target,caster){
+  const S=SPELLS[key];
+  if(!S||!caster||!target)return false;
+  if(caster.cds[key]>0||caster.qi<S.cost)return false;
+  const from=ownerKey==='player'?caster.pos:{x:caster.x,y:caster.y+8,z:caster.z};
+  if(horizDist(from,entityPos(target))>S.range)return false;
+  caster.qi-=S.cost; caster.cds[key]=S.cd;
+  launchSpell(ownerKey,from,target,key);
+  if(ownerKey==='player'){
+    const who=target.dummy?'落点':(target.type==='boss'?'麒麟':(target.type==='beast'?'妖兽':'敌修'));
+    player.lastCast=`${S.name} → ${who}`;
+  }
+  return true;
+}
+function pickManualTarget(){
+  const aim=mouseToGround();
+  if(!aim)return null;
+  let best=null,bd=1e9;
+  const facing=facingVec(cam.yaw);
+  for(const e of enemies){
+    const tp=entityPos(e);
+    if(!inVision(player.pos,tp,facing))continue;
+    const d=horizDist(aim,tp);
+    if(d<bd){bd=d;best=e;}
+  }
+  if(best&&bd<20)return best;
+  return {pos:aim,x:aim.x,y:aim.y,z:aim.z,dummy:true,hp:1e9};
+}
+function castManual(key){
+  if(!game.started||game.over)return false;
+  const target=pickManualTarget();
+  return target?castSpellFor('player',key,target,player):false;
+}
+function tryAutoAttack(actorKey,enemy){
+  const isPlayer=actorKey==='player';
+  const actor=isPlayer?player:enemy;
+  if(!actor)return null;
+  if(isPlayer&&!player.auto)return null;
+  if(game.time-actor.autoLast<AUTO_MIN_INTERVAL)return null;
+  const from=isPlayer?player.pos:{x:actor.x,y:actor.y+8,z:actor.z};
+  const facing=isPlayer?facingVec(cam.yaw):actor.facing;
+  const targets=isPlayer?enemies:[player];
+  const choice=evaluateAutoSpell(actorKey,from,facing,targets,actor.qi,actor.cds);
+  if(!choice)return null;
+  if(!castSpellFor(actorKey,choice.key,choice.target,actor))return null;
+  actor.autoLast=game.time;
+  if(isPlayer)player.autoChoice=`${SPELLS[choice.key].name}｜期望 ${choice.expected.toFixed(0)}`;
+  return choice;
+}
+function detonateBolt(b){
+  const dmg=boltDamage(b);
+  const ground=terrainH(b.pos.x,b.pos.z);
+  b.pos.y=Math.max(b.pos.y,ground);
+  burst(b.pos,18,b.color,2.2);
+  for(const e of enemies){
+    if(e.hp>0 && horizDist(e,b.pos)<b.radius && Math.abs(entityPos(e).y-b.pos.y)<18){
+      hurtEnemy(e,dmg);
+    }
+  }
+}
+function updateBolts(dt){
+  for(let i=bolts.length-1;i>=0;i--){
+    const b=bolts[i];
+    if(b.guided&&b.target){
+      if(!targetAlive(b.target)){b.guided=false;b.target=null;}
+      else{
+        const tp=entityPos(b.target);
+        const hs=Math.hypot(b.v.x,b.v.z)||SPELLS[b.kind].speed;
+        const want=ballistic(b.pos,tp,hs);
+        const turn=1-Math.exp(-7*dt);
+        b.v.x=lerp(b.v.x,want.x,turn);
+        b.v.y=lerp(b.v.y,want.y,turn);
+        b.v.z=lerp(b.v.z,want.z,turn);
+      }
+    }
+    const prev={...b.pos};
+    b.v.y-=GRAVITY*dt;
+    b.pos=V.add(b.pos,V.mul(b.v,dt));
+    b.traveled+=dist3(b.pos,prev);
+    if(b.powered&&b.traveled>b.powerRange){
+      b.powered=false;
+      b.guided=false; b.target=null;
+      burst(b.pos,4,'#dbe9e4',0.8);
+    }
+    b.life-=dt;
+    if(Math.random()<0.55)particles.push({
+      p:{...b.pos},v:{x:0,y:0,z:0},life:0.25,max:0.25,
+      color:b.powered?b.color:'#9aa8a2',size:2.4*b.size
+    });
+    let done=false;
+    const ground=terrainH(b.pos.x,b.pos.z);
+    if(b.owner==='player'){
+      if(b.radius>0){
+        if(b.pos.y<=ground||b.life<=0||(b.target&&dist3(b.pos,entityPos(b.target))<6)){
+          detonateBolt(b);done=true;
+        }
+      }else{
+        for(const e of enemies){
+          if(e.hp>0&&dist3(b.pos,entityPos(e))<(e.r+3)){
+            hurtEnemy(e,boltDamage(b));burst(b.pos,8,b.color,1.4);done=true;break;
+          }
+        }
+        if(!done&&(b.pos.y<=ground||b.life<=0)){
+          burst(b.pos,8,b.color,1.2);done=true;
+        }
+      }
+    }else{
+      if(b.radius>0){
+        if(b.pos.y<=ground||dist3(b.pos,player.pos)<8||b.life<=0){
+          if(horizDist(b.pos,player.pos)<b.radius+3&&player.pos.y<ground+60){
+            hurtPlayer(boltDamage(b));
+          }
+          burst(b.pos,12,b.color,1.8);done=true;
+        }
+      }else if(dist3(b.pos,player.pos)<6){
+        hurtPlayer(boltDamage(b));burst(b.pos,8,b.color,1.2);done=true;
+      }else if(b.pos.y<=ground||b.life<=0){
+        burst(b.pos,6,'#c98a5a',1.0);done=true;
+      }
+    }
+    if(done)bolts.splice(i,1);
+  }
+}
+function updateBeams(dt){
+  for(let i=beams.length-1;i>=0;i--){
+    const b=beams[i];
+    b.life-=dt; b.tick-=dt;
+    if(b.tick<=0){
+      b.tick=BOSS_BEAM.tick;
+      const ground=terrainH(b.x,b.z);
+      if(horizDist(player.pos,{x:b.x,z:b.z})<b.r+3&&player.pos.y<ground+80){
+        hurtPlayer(b.dmg,{ignoreInv:true,noInv:true,noFlash:true});
+      }
+      burst({x:b.x,y:ground+3,z:b.z},8,'#ffcf6a',1.6);
+    }
+    if(b.life<=0)beams.splice(i,1);
+  }
 }
 function startDive(){
   if(!game.started||game.over||player.dive||player.qi<12)return;
@@ -184,18 +410,22 @@ function startDive(){
 /* ---------- 敌人 ---------- */
 function spawnEnemy(boss){
   let x,z,tries=0;
-  // 只在陆地生成（海面是玩家的安全区）
   do{
     const a=Math.random()*Math.PI*2,r=55+Math.random()*110;
     x=player.pos.x+Math.cos(a)*r; z=player.pos.z+Math.sin(a)*r;
     tries++;
   }while(isSea(x,z)&&tries<24);
   if(isSea(x,z)){x=player.pos.x+70;z=player.pos.z;}
+  const maxQi=boss?120:60;
   enemies.push({
     x,z,y:terrainH(x,z),
     hp:boss?360:64,maxHp:boss?360:64,r:boss?9:5,
     type:boss?'boss':(Math.random()<0.28?'archer':'beast'),
-    wander:Math.random()*6.28,cd:Math.random()*2,hitCd:0,hurt:0
+    wander:Math.random()*6.28,hitCd:0,hurt:0,
+    qi:maxQi,maxQi,
+    cds:{sword:Math.random()*0.8,fire:Math.random()*0.6,ice:Math.random()*0.6,
+         beam:Math.random()*2,melee:0},
+    autoLast:0,facing:{x:0,z:1}
   });
 }
 function hurtEnemy(e,dmg){
@@ -221,8 +451,10 @@ function burst(pos,n,color,spd){
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
   player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-          trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0};
-  enemies=[];bolts=[];zones=[];particles=[];dmgNums=[];eBullets=[];
+          trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
+          cds:{sword:0,fire:0,ice:0},autoLast:0,auto:true,showVision:false,
+          autoChoice:'—',lastCast:'—'};
+  enemies=[];bolts=[];beams=[];particles=[];dmgNums=[];
   for(let i=0;i<10;i++)spawnEnemy(false);
   initClouds(); cam.yaw=0;cam.pitchIdx=1;
 }
@@ -232,9 +464,9 @@ function update(dt){
   if(!game.started||game.over)return;
   game.time+=dt; game.flash=Math.max(0,game.flash-dt*2.5);
   player.inv=Math.max(0,player.inv-dt);
-  // 灵力回复（海面更快）；气血在脱战 3 秒后缓慢自愈
+  tickCds(player.cds,dt);
   player.qi=clamp(player.qi+dt*(isSea(player.pos.x,player.pos.z)?11:7),0,player.maxQi);
-  if(game.time-player.lastHit>3 && player.hp<player.maxHp){
+  if(game.time-player.lastHit>3&&player.hp<player.maxHp){
     player.hp=clamp(player.hp+dt*2.2,0,player.maxHp);
   }
 
@@ -256,7 +488,7 @@ function update(dt){
       player.pos.y=lerp(player.pos.y,gy,1-Math.exp(-9*dt));
       for(const e of enemies){
         if(d.hit.has(e))continue;
-        if(Math.hypot(e.x-player.pos.x,e.z-player.pos.z)<(e.r+5) && player.pos.y<e.y+16){
+        if(Math.hypot(e.x-player.pos.x,e.z-player.pos.z)<(e.r+5)&&player.pos.y<e.y+16){
           d.hit.add(e); hurtEnemy(e,46);
         }
       }
@@ -269,66 +501,52 @@ function update(dt){
     if(keys['e'])player.pos.y+=26*dt;
     if(keys['q'])player.pos.y-=26*dt;
   }
-  const ground=terrainH(player.pos.x,player.pos.z);
-  player.pos.y=clamp(player.pos.y,Math.max(ground,0)+5,150);
+  const groundP=terrainH(player.pos.x,player.pos.z);
+  player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,150);
   player.trail.push({...player.pos});
   if(player.trail.length>22)player.trail.shift();
 
-  // 云漂移
   for(const c of clouds){ c.x+=c.drift*dt*3; if(c.x>500)c.x-=1000; if(c.x<-500)c.x+=1000; }
 
+  // 玩家自动斗法：视野内 + 射程内 + 有灵力 + 冷却就绪，按最大期望伤害选技能
+  tryAutoAttack('player');
+
   for(const e of enemies){
-    e.hurt=Math.max(0,e.hurt-dt); e.hitCd=Math.max(0,e.hitCd-dt); e.cd-=dt;
+    tickCds(e.cds,dt);
+    e.qi=clamp(e.qi+dt*(e.type==='boss'?10:7),0,e.maxQi);
+    e.hurt=Math.max(0,e.hurt-dt); e.hitCd=Math.max(0,e.hitCd-dt);
     e.wander+=dt*0.7;
     const dx=player.pos.x-e.x,dz=player.pos.z-e.z,dist=Math.hypot(dx,dz)||1;
+    e.facing={x:dx/dist,z:dz/dist};
     if(e.type==='boss'){
-      if(dist<90){const s=7*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
-      if(dist<26&&e.cd<=0&&player.pos.y<e.y+30){hurtPlayer(18);e.cd=1.4;burst({x:e.x,y:e.y+8,z:e.z},14,'#ffd76a',2.4);}
+      if(dist<82){const s=7*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
+      const from={x:e.x,y:e.y+8,z:e.z};
+      if(dist<=BOSS_BEAM.range&&e.cds.beam<=0&&inVision(from,player.pos,e.facing)){
+        beams.push({x:player.pos.x,z:player.pos.z,
+                    life:BOSS_BEAM.duration,tick:0,r:BOSS_BEAM.radius,dmg:BOSS_BEAM.dmg});
+        e.cds.beam=BOSS_BEAM.cd;
+        burst({x:player.pos.x,y:terrainH(player.pos.x,player.pos.z)+4,z:player.pos.z},20,'#ffcf6a',2.6);
+      }else tryAutoAttack('enemy',e);
+      if(dist<26&&e.cds.melee<=0&&player.pos.y<e.y+30){
+        hurtPlayer(18);e.cds.melee=1.4;burst({x:e.x,y:e.y+8,z:e.z},14,'#ffd76a',2.4);
+      }
     }else if(e.type==='beast'){
       if(dist<52){const s=8*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
       else{e.x+=Math.cos(e.wander)*4*dt;e.z+=Math.sin(e.wander)*4*dt;}
-      if(dist<13&&e.cd<=0&&player.pos.y<e.y+22&&player.inv<=0){hurtPlayer(10);e.cd=1.6;}
-    }else{
-      if(dist<70&&e.cd<=0){
-        const from={x:e.x,y:e.y+8,z:e.z};
-        const v=ballistic(from,player.pos,40);
-        eBullets.push({p:from,v,life:3.5});e.cd=2.3;
+      if(dist<13&&e.cds.melee<=0&&player.pos.y<e.y+22&&player.inv<=0){
+        hurtPlayer(10);e.cds.melee=1.6;
       }
-      if(dist>45){e.x+=dx/dist*4*dt;e.z+=dz/dist*4*dt;}
+    }else{
+      if(dist>65){e.x+=dx/dist*4*dt;e.z+=dz/dist*4*dt;}
+      else if(dist<35){e.x-=dx/dist*3*dt;e.z-=dz/dist*3*dt;}
+      tryAutoAttack('enemy',e);
     }
     e.y=terrainH(e.x,e.z);
   }
-  for(let i=eBullets.length-1;i>=0;i--){
-    const b=eBullets[i];
-    b.v.y-=GRAVITY*dt;                                  // 受重力：上升减速、下落加速
-    b.p=V.add(b.p,V.mul(b.v,dt));b.life-=dt;
-    if(Math.hypot(b.p.x-player.pos.x,b.p.y-player.pos.y,b.p.z-player.pos.z)<6){hurtPlayer(8);eBullets.splice(i,1);continue;}
-    // 打不中玩家 → 抛物线回落到地面，溅起小范围尘土后消失
-    const ground=terrainH(b.p.x,b.p.z);
-    if(b.p.y<=ground){burst({x:b.p.x,y:ground+0.5,z:b.p.z},5,'#c98a5a',1.2);eBullets.splice(i,1);continue;}
-    if(b.life<=0)eBullets.splice(i,1);
-  }
-  for(let i=bolts.length-1;i>=0;i--){
-    const b=bolts[i];
-    b.v.y-=GRAVITY*dt;                                  // 剑诀同样走抛物线
-    b.pos=V.add(b.pos,V.mul(b.v,dt));b.life-=dt;
-    if(Math.random()<0.6)particles.push({p:{...b.pos},v:{x:0,y:0,z:0},life:0.25,max:0.25,color:'#8ff0e0',size:2.5});
-    // 触地即爆（落点由弹道决定，不再依赖瞄准点距离）
-    const ground=terrainH(b.pos.x,b.pos.z);
-    if(b.pos.y<=ground||b.life<=0){
-      b.pos.y=Math.max(b.pos.y,ground);
-      burst(b.pos,14,'#8ff0e0',2.0);
-      for(const e of enemies)if(Math.hypot(e.x-b.pos.x,e.z-b.pos.z)<b.rad)hurtEnemy(e,b.dmg);
-      bolts.splice(i,1);
-    }
-  }
-  for(let i=zones.length-1;i>=0;i--){
-    const z=zones[i];z.life-=dt;z.tick-=dt;
-    if(z.tick<=0){z.tick=0.5;
-      for(const e of enemies)if(Math.hypot(e.x-z.x,e.z-z.z)<z.r)hurtEnemy(e,z.dmg);
-      burst({x:z.x,y:z.y+2,z:z.z},4,'#ffe08a',1.8);}
-    if(z.life<=0)zones.splice(i,1);
-  }
+
+  updateBolts(dt);
+  updateBeams(dt);
+
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];p.p=V.add(p.p,V.mul(p.v,dt));p.v.y-=9*dt;p.life-=dt;
     if(p.life<=0)particles.splice(i,1);
@@ -338,14 +556,15 @@ function update(dt){
   }
   enemies=enemies.filter(e=>e.hp>0);
   while(enemies.length<10)spawnEnemy(false);
-  // 击杀 5 个后刷一只神兽 Boss
   if(!game.bossSpawned&&game.kills>=5){spawnEnemy(true);game.bossSpawned=true;}
   updateCamera(dt);
 }
-function hurtPlayer(d){
-  if(player.inv>0)return;
-  player.hp-=d;player.inv=0.6;game.flash=1;
-  player.lastHit=game.time;                    // 受击后重置自愈计时
+function hurtPlayer(d,opts={}){
+  if(!opts.ignoreInv&&player.inv>0)return;
+  player.hp-=d;
+  if(!opts.noInv)player.inv=0.6;
+  if(!opts.noFlash)game.flash=1;
+  player.lastHit=game.time;
   if(player.hp<=0){player.hp=0;game.over=true;}
 }
 
@@ -366,23 +585,20 @@ function drawSky(){
   }
   ctx.lineTo(W,H*0.66);ctx.closePath();ctx.fill();
 }
-
-// 地形着色分段
 function terrainColor(h,dist,sea){
   const t=clamp((h+8)/40,0,1);
   const fog=clamp(1-dist/340,0.12,1);
   let base;
-  if(sea){
-    base=h<-4?[32,84,116]:[74,146,160];        // 深海 / 浅海
-  }else if(h<2)  base=[214,198,150];            // 沙滩
-  else if(h<16)  base=[92,136,104];             // 草地
-  else if(h<28)  base=[138,136,124];            // 岩石
-  else           base=[226,230,224];            // 雪顶
+  if(sea)base=h<-4?[32,84,116]:[74,146,160];
+  else if(h<2)base=[214,198,150];
+  else if(h<16)base=[92,136,104];
+  else if(h<28)base=[138,136,124];
+  else base=[226,230,224];
   const sky=[232,237,227];
   return base.map((v,k)=>Math.round(v*fog+sky[k]*(1-fog)));
 }
 function drawTerrain(){
-  const step=30,range=13;                        // ±390 单位，比 v1 的 ±216 大得多
+  const step=30,range=13;
   const cx=Math.round(player.pos.x/step),cz=Math.round(player.pos.z/step);
   const cells=[];
   for(let i=-range;i<range;i++)for(let j=-range;j<range;j++){
@@ -399,7 +615,6 @@ function drawTerrain(){
   cells.sort((a,b)=>b.depth-a.depth);
   for(const c of cells){
     const col=terrainColor(c.h,c.depth,c.sea);
-    // 海面波纹：亮度随时间轻微起伏
     let fill=`rgb(${col[0]},${col[1]},${col[2]})`;
     if(c.sea&&c.h>-4){
       const wave=0.5+0.5*Math.sin(game.time*1.6+c.mx*0.05+c.mz*0.04);
@@ -426,24 +641,31 @@ function groundCircle(x,z,r,fill,stroke,h){
   if(fill){ctx.fillStyle=fill;ctx.fill();}
   if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();}
 }
+function drawVision(){
+  if(!player.showVision||!game.started||game.over)return;
+  const pts=[{x:player.pos.x,y:terrainH(player.pos.x,player.pos.z)+0.8,z:player.pos.z}];
+  for(let i=0;i<=28;i++){
+    const a=cam.yaw+(-VISION_HALF_ANGLE+i/28*2*VISION_HALF_ANGLE);
+    const x=player.pos.x+Math.sin(a)*VISION_RANGE;
+    const z=player.pos.z-Math.cos(a)*VISION_RANGE;
+    pts.push({x,y:terrainH(x,z)+0.8,z});
+  }
+  const pr=pts.map(project);
+  if(pr.some(p=>!p))return;
+  ctx.beginPath();ctx.moveTo(pr[0].x,pr[0].y);
+  for(let i=1;i<pr.length;i++)ctx.lineTo(pr[i].x,pr[i].y);
+  ctx.closePath();
+  ctx.fillStyle='rgba(70,190,170,0.07)';ctx.fill();
+  ctx.strokeStyle='rgba(70,190,170,0.55)';ctx.lineWidth=1.5;ctx.stroke();
+}
 function drawAim(){
   if(!game.started||game.over)return;
   const aim=mouseToGround();if(!aim)return;
-  if(isSea(aim.x,aim.z)){ // 海面不通法术落点提示变红
-    groundCircle(aim.x,aim.z,10,null,'rgba(210,90,70,0.8)');return;
-  }
+  if(isSea(aim.x,aim.z)){groundCircle(aim.x,aim.z,10,null,'rgba(210,90,70,0.8)');return;}
   const pulse=1+Math.sin(game.time*6)*0.08;
   groundCircle(aim.x,aim.z,10*pulse,null,'rgba(70,190,170,0.85)');
   groundCircle(aim.x,aim.z,2.5,'rgba(70,190,170,0.9)',null);
 }
-function drawZones(){
-  for(const z of zones){
-    const a=clamp(z.life/4.2,0,1);
-    groundCircle(z.x,z.z,z.r,`rgba(255,205,90,${0.10+0.10*a})`,`rgba(255,190,70,${0.5*a})`,z.y);
-  }
-}
-
-/* ---------- 素材绘制（带程序化 fallback） ---------- */
 function spriteOK(k){ const im=sprites[k]; return im&&im.complete&&im.naturalWidth>0; }
 function drawSprite(k,wx,wy,wz,worldH,hurt){
   if(!spriteOK(k))return false;
@@ -470,7 +692,6 @@ function drawEnemy(e){
   if(shadow){ctx.beginPath();ctx.ellipse(shadow.x,shadow.y,e.r*shadow.s,e.r*shadow.s*0.34,0,0,Math.PI*2);
     ctx.fillStyle='rgba(30,50,46,0.18)';ctx.fill();}
   if(!drawSprite(key,e.x,e.y,e.z,worldH,e.hurt>0))drawFallbackEnemy(e);
-  // 血条
   const bar=project({x:e.x,y:e.y+worldH+3,z:e.z});
   if(bar){const w=Math.max(20,(e.type==='boss'?52:28)*bar.s/8);
     ctx.fillStyle='rgba(20,30,28,0.5)';ctx.fillRect(bar.x-w/2,bar.y,w,4);
@@ -489,7 +710,6 @@ function drawPlayer(){
   }
   const p=project(player.pos);if(!p)return;
   if(!drawSprite('player',player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
-    // fallback：小剑身 + 叠层骑手
     const tailP=V.add(player.pos,V.mul(player.dir,-7));tailP.y-=1;
     const tail=project(tailP)||{x:p.x,y:p.y+10,s:p.s};
     const dx=p.x-tail.x,dy=p.y-tail.y,l=Math.hypot(dx,dy)||1;
@@ -525,22 +745,43 @@ function drawClouds(){
   }
   ctx.restore();
 }
+function drawBeams(){
+  for(const b of beams){
+    const ground=terrainH(b.x,b.z);
+    const bot=project({x:b.x,y:ground,z:b.z});
+    const top=project({x:b.x,y:ground+78,z:b.z});
+    if(bot&&top){
+      ctx.save();
+      ctx.globalAlpha=0.28+0.18*Math.sin(game.time*18);
+      ctx.strokeStyle='#ffcf6a';
+      ctx.lineWidth=Math.max(5,16*bot.s/10);
+      ctx.beginPath();ctx.moveTo(bot.x,bot.y);ctx.lineTo(top.x,top.y);ctx.stroke();
+      ctx.restore();
+    }
+    const a=clamp(b.life/BOSS_BEAM.duration,0,1);
+    groundCircle(b.x,b.z,b.r,`rgba(255,190,70,${0.14*a})`,`rgba(255,150,60,${0.65*a})`,ground);
+  }
+}
 function drawProjectiles(){
   for(const b of bolts){
     const p=project(b.pos);if(!p)continue;
-    ctx.save();ctx.shadowBlur=14;ctx.shadowColor='#8ff0e0';
-    ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,p.s*0.5),0,Math.PI*2);
-    ctx.fillStyle='#d9fff8';ctx.fill();ctx.restore();
-  }
-  for(const b of eBullets){
-    const p=project(b.p);if(!p)continue;
-    ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,p.s*0.42),0,Math.PI*2);
-    ctx.fillStyle='#ff9a7a';ctx.fill();
+    const r=Math.max(2,p.s*b.size);
+    ctx.save();
+    if(b.kind==='fire'||b.kind==='sword'){ctx.shadowBlur=14;ctx.shadowColor=b.color;}
+    ctx.globalAlpha=b.powered?1:0.55;
+    ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fillStyle=b.powered?b.color:'#9aa8a2';ctx.fill();
+    if(b.kind==='ice'){
+      ctx.beginPath();ctx.moveTo(p.x,p.y-r*1.6);ctx.lineTo(p.x+r*0.7,p.y);
+      ctx.lineTo(p.x,p.y+r*1.6);ctx.lineTo(p.x-r*0.7,p.y);ctx.closePath();
+      ctx.fillStyle=b.powered?'#d9f2ff':'#9aa8a2';ctx.fill();
+    }
+    ctx.restore();
   }
   for(const p of particles){
     const s=project(p.p);if(!s)continue;
     ctx.globalAlpha=clamp(p.life/p.max,0,1);
-    ctx.beginPath();ctx.arc(s.x,s.y,Math.max(1,p.size*s.s*0.12),0,Math.PI*2);
+    ctx.beginPath();ctx.arc(s.x,s.y,Math.max(1,p.size*s.s*0.12),0,0,Math.PI*2);
     ctx.fillStyle=p.color;ctx.fill();
   }
   ctx.globalAlpha=1;
@@ -562,7 +803,7 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.2',22,30);
   ctx.font='13px "Microsoft YaHei"';
   ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,116);
   const ground=terrainH(player.pos.x,player.pos.z);
@@ -574,6 +815,14 @@ function drawHUD(){
   }else if(player.hp<player.maxHp){
     ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText('气血回复中 +2.2/秒',22,176);
   }
+  ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
+  ctx.fillText(`自动攻击 ${player.auto?'开':'关'} (F)   视野 ${player.showVision?'显示':'隐藏'} (V)`,22,196);
+  ctx.fillStyle='#25453f';
+  ctx.fillText(`1 飞剑 ${SPELLS.sword.range}丈 ${player.cds.sword>0?'CD'+player.cds.sword.toFixed(1):'就绪'}`,22,216);
+  ctx.fillText(`2 火球 ${SPELLS.fire.range}丈 ${player.cds.fire>0?'CD'+player.cds.fire.toFixed(1):'就绪'}`,22,234);
+  ctx.fillText(`3 冰剑 ${SPELLS.ice.range}丈 ${player.cds.ice>0?'CD'+player.cds.ice.toFixed(1):'就绪'}`,22,252);
+  ctx.fillStyle='rgba(45,95,88,0.85)';
+  ctx.fillText(`自动决策：${player.autoChoice}   上次：${player.lastCast}`,22,274);
   ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
   ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
@@ -586,8 +835,8 @@ function drawOverlay(){
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
     ctx.font='bold 42px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地',W/2,H/2-76);
     ctx.font='16px "Microsoft YaHei"';
-    ctx.fillText('山海之间，御剑凌空，从天上打地面的妖兽',W/2,H/2-34);
-    ctx.fillText('WASD 移动 · Q/E 降升 · 左键剑诀 · 右键雷池 · 空格俯冲 · 1/2/3 视角',W/2,H/2+8);
+    ctx.fillText('视野内自动选最优法术，山海之间御剑凌空',W/2,H/2-34);
+    ctx.fillText('1 飞剑术 · 2 火球 · 3 冰剑术 · F 自动攻击 · V 视野 · Z/X/C 视角',W/2,H/2+8);
     ctx.fillText('飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',W/2,H/2+36);
     ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText('点击开始',W/2,H/2+92);
     ctx.textAlign='left';
@@ -603,7 +852,7 @@ function drawOverlay(){
 }
 function render(){
   drawSky(); updateCamera(0.0001);
-  drawTerrain(); drawAim(); drawZones();
+  drawTerrain(); drawVision(); drawAim(); drawBeams();
   const sorted=[...enemies].sort((a,b)=>{
     const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
     const db=V.dot(V.sub({x:b.x,y:b.y,z:b.z},cam.pos),cam.f);
@@ -611,7 +860,7 @@ function render(){
   });
   for(const e of sorted)drawEnemy(e);
   drawPlayer();
-  drawClouds();                                  // 薄云覆盖玩家，营造穿云感
+  drawClouds();
   drawProjectiles(); drawHUD(); drawOverlay();
 }
 let last=performance.now();
