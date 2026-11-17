@@ -17,3 +17,7 @@ __pycache__/
 # 系统
 Thumbs.db
 desktop.ini
+
+# 工作区数据（重要，不删除；但非源码，不纳入 git 跟踪）
+.workbuddy/
+others/godot_probe/         # Godot 实机探针（可由文档重建）
