@@ -1,0 +1,19 @@
+# 抓取的大型第三方资源/竞品仓库，不作为本仓库源码跟踪（规则14）
+others/twopoint5d/          # 76MB 竞品 clone，分析后可再取
+others/assets_raw/          # 2.6MB 二进制，可由 scripts/02b 复现
+others/assets_dl/           # JS 包装，可由 scripts/02 复现
+others/game_src_tree/       # 抓取的源码，可由 scripts/01 复现
+others/local_site/          # 本地镜像，可由 scripts/03/04 复现
+others/*.png                # 截图证据（可选保留）
+others/*.js                 # 下载的 viewer bundle（可复现）
+others/*.html
+others/*.json
+others/embed_chunk.js
+
+# Python
+__pycache__/
+*.pyc
+
+# 系统
+Thumbs.db
+desktop.ini
