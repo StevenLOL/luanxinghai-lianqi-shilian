@@ -12,7 +12,7 @@
 |------|------|--------|----------|
 | **能否下载？** | ✅ **能完整下载**（源码 + 全部资源） | 已实测 | 公开 API 拿到 13 个源码文件（382,269 B）+ 32 个资源（2,659,352 B），资源 sha256 全部校验通过 |
 | **① 网页端游玩（端侧）** | ✅ **能，且可完全离线本地运行** | 已实测截图 | 在线渲染成功；本地镜像 + 断网（`MAP * ~NOTFOUND`）仍渲染出游戏画面 |
-| **② Godot 游玩** | ⚠️ **不能直接运行；可移植但非平凡** | 源码级分析 | 该游戏是纯 JS/Canvas-2D 软件渲染器 + 少量 WebGL，无 three.js；Godot 不原生执行 JS/TS；需移植或 WebView 封装 |
+| **② Godot 游玩** | ⚠️ **不能直接运行；可移植但非平凡** | 实机验证（Godot 4.7.2） | 该游戏是纯 JS/Canvas-2D 软件渲染器 + 少量 WebGL，无 three.js；Godot 实机无 WebView 类、`.ts` 无 loader；可走 CEF WebView / GodotJS / 源码移植 |
 
 一句话：**下载没问题，网页端（含离线端侧）完全可玩；Godot 无法直接开箱运行，只能作为“源码级移植”或“内嵌浏览器”工程来做。**
 
@@ -124,27 +124,52 @@
 | 资源 | 32 个外部 PNG/MP3（已下载校验） |
 | 依赖 | 仅 react / react-dom（+ host 运行时） |
 
-### 4.2 Godot 能力对照（S8/S9，官方文档）
+### 4.2 ⚠️ 前次结论更正：本机有 Godot，已实机验证
 
-- Godot 官方脚本语言：**GDScript、.NET/C#、C++ via GDExtension**（另有社区绑定，含 JavaScript binding，但**非官方、非一等支持**）。**没有原生 JS/TS 运行时，也不能直接执行浏览器 Canvas/WebGL 代码**。
-- 因此：**把下载的 `.ts/.tsx` 直接拖进 Godot 运行 → 不可行**。
-- Godot 有 WebXR / OpenGL / Vulkan 渲染，但那是 Godot 自己的渲染 API，与 HTML Canvas 2D `putImageData` 不是一回事。
+**更正声明（规则9 举一反三）**：第一版报告写“未安装 Godot 本机（godot/godot4 均 none）”是**错误**的。根因：只用 `command -v godot` 查命令名，而本机 Godot 装在 `E:\dev\godot\`（也在 PATH 的 `/e/Dev/Godot`，大小写不敏感），可执行文件名是 `Godot_v4.7.2-stable_win64.exe`（带版本前缀），故命令名探测为假阴性。**教训（已举一反三）**：探测工具必须先读 `C:\src\RAG_LLM_agents\docs\000_工作规则与开发环境.md` + `C:\src\CTF\环境清单.md`（规则13 指定落盘），再按“PATH 目录 + 文件名模式（`*godot*.exe`）双重检索”，不能只靠 `command -v`。
 
-### 4.3 可行路径（按工程量从低到高）
+实机环境：`Godot Engine v4.7.2.stable.official.ed1daf0bf`（`--version` 实测输出）。
+实机探针：`others/godot_probe/probe.gd`（脚本，规则2 命名）+ 输出已存档。关键输出逐字：
+
+```
+version: 4.7.2-stable (official)
+class_exists WebView: false
+class_exists WebViewController: false
+class_exists JavaScriptBridge: true
+class_exists HTTPRequest: true
+ERROR: No loader found for resource: res://src/components/fighter-jet-eject.ts
+load .ts as script: <Object#null>
+```
+
+由此得到的**硬证据**（比文档推断更强）：
+
+1. Godot 4.7.2 **无内置 WebView 节点**（`ClassDB.class_exists("WebView")=false`）；
+2. `JavaScriptBridge` **存在**，但它服务于 Web 导出（在 Godot 应用内调用宿主浏览器 JS），**不是**在桌面端运行外部网页 JS 的通用运行时；
+3. 直接 `load()` 该 fragment 的 `.ts` 源码 → `No loader found`，**不可直接导入执行**；
+4. 探针脚本自身踩坑并已修复：`ScriptLanguage.get_name()` 在 4.7 不存在（规则8/9，v2 改用 `str(l)` 与反射），这是本次实机验证中的第二个 bug。
+
+### 4.3 Godot 能力对照（S8/S9 + 实机）
+
+- Godot 官方脚本语言：**GDScript、.NET/C#、C++ via GDExtension**；官方**无 JS/TS 一等运行时**，也不能原生执行浏览器 Canvas/WebGL 代码。实机确认无 WebView 类。
+- 因此：**把下载的 `.ts/.tsx` 直接拖进 Godot 运行 → 不可行（实机已证）**。
+- 关键新发现（S12/S13）：社区 GDExtension 补上了这条路 —— **GodotJS**（MIT）注册真正的 ScriptLanguage，支持 V8 / QuickJS / quickjs-ng / JavaScriptCore / 宿主浏览器 JS；有编辑器 REPL、热重载、Chrome/VSCode 调试；但 README 自述 `core functionality is implemented and essentially usable but still under testing`，Worker 实验性、异步模块仅 v8/quickjs，且 Godot 4.7 支持标记 `Initial Godot 4.7 support (WIP / CI disabled)`。**它执行的是 JS 语言 + Godot API 绑定，不等于提供浏览器的 DOM/Canvas2D/WebGL 环境** —— 本 fragment 的 `getContext('2d')`/`putImageData`/`react-dom` 仍无法原样跑，仍需重写渲染/UI 层。
+- **gdCEF / godot-cef**（MIT，S14/S15）：CEF GDExtension，把完整 Chromium 浏览器嵌进 Godot 4.2+ 的 2D/3D 场景，GDScript 可调 `load_url`/`load_html`/`execute_javascript`；Linux/Windows 可用、iOS/Android 不支持；产物约 500MB 级。这正是把 `local_site/index.html` 塞进 Godot 的成熟路径。
+
+### 4.4 可行路径（按工程量从低到高；均已对照实机/信源修正）
 
 | 方案 | 做法 | 保真度 | 工程量 | 评价 |
 |------|------|--------|--------|------|
-| **A. WebView / 内嵌浏览器** | Godot 内嵌 `CEF`/`WebView`（桌面端插件），加载 `local_site/index.html` | 100%（像素级一致） | 低-中 | **最快“在 Godot 里游玩”**：Godot 只做壳，游戏仍是网页。桌面端可行；移动端/导出 Web 受限 |
-| **B. 半移植：保留 JS 逻辑** | 用 Godot JavaScript binding / QuickJS GDExtension 跑纯计算部分（体素解码、飞行动力学），渲染换成 Godot `ImageTexture` + `Sprite2D`/`TextureRect` | 高（需重写渲染层） | 中-高 | 逻辑可复用，渲染需重写 `putImageData` → `Image.set_pixel` / PackedByteArray |
-| **C. 全移植 GDScript/C#** | 把 `scene.ts` 的 4,826 行软件光栅化逐段翻译；体素模型数据（RLE+base64）可直接搬；shader 尾焰改 Godot `ShaderMaterial` | 高（可做到很像） | **高**（数千行） | 真正的 Godot 原生版，可导出各平台；是最彻底但最贵的路 |
-| **D. 用 SpriteMesh 类插件重制观感** | 借 Godot SpriteMesh / billboard 插件（S10）用像素图生成 2.5D 网格 | 中（观感接近，逻辑重写） | 中-高 | 适合“借鉴玩法重做”，非“移植原作” |
+| **A. CEF WebView 壳（gdCEF/godot-cef）** | Godot 内嵌 CEF（S14/S15），加载 `local_site/index.html`；GDScript 可通过 `execute_javascript` 与游戏通讯 | 100%（像素级一致，真浏览器跑） | 低-中 | **最快“在 Godot 里游玩”**：桌面 Win/Linux 可行；约 500MB 附加体积；移动端不支持 |
+| **B. 半移植：GodotJS 跑 JS 逻辑** | 用 GodotJS（S12/S13）跑纯计算部分（体素解码、飞行动力学、弹道），渲染换成 Godot `Image`/`ImageTexture` + `TextureRect`，输入换 `_input` | 高（需重写渲染/UI/输入） | 中-高 | 逻辑可复用；GodotJS 处于 beta、4.7 支持 WIP，有风险；**不提供 Canvas2D/WebGL** |
+| **C. 全移植 GDScript/C#** | 把 `scene.ts` 4,826 行软件光栅化逐段翻译；体素模型（RLE+base64，`jet-model.ts` 的 `DATA`/`decodeJet()`）可直接搬；尾焰 shader 改 Godot `ShaderMaterial`；音频直接复用已校验的 32 个 MP3/PNG | 高（可做到很像） | **高**（数千行） | 真正的 Godot 原生版，可导出各平台；最彻底但最贵 |
+| **D. SpriteMesh 类插件重制观感** | 借 Godot SpriteMesh / billboard（S10）用像素图生成 2.5D 网格 | 中（观感接近，逻辑重写） | 中-高 | 适合“借鉴玩法重做”，非“移植原作” |
 
-### 4.4 Godot 结论
+### 4.5 Godot 结论（修正版）
 
-- **开箱即用：否**。没有可直接导入运行的 Godot 工程，Godot 也不执行 JS/TS。
-- **可移植：是**，且**代码完全可读、算法自包含**（无引擎锁定），这是有利因素；`createScene(initial)` → `render()` / `resize(w,h)` 的清晰 API 边界（scene.ts:423/4680/1249）便于封装。
-- **推荐**：若目标只是“在 Godot 项目里玩到它”→ 方案 A（WebView 壳）；若目标“做成 Godot 原生可导出游戏”→ 方案 C，按天/周级工作量估算，需重写渲染与输入层，复用体素数据与参数体系。
-- 未安装 Godot 本机（环境检测：godot/godot4 均 none），故**未做实机导入演示**；以上为源码级 + 官方文档可行性判定。
+- **开箱即用：否**（实机证：无 WebView 类、`.ts` 无 loader）。
+- **可移植：是，且路径比第一版判断的更多**：代码完全可读、算法自包含；`createScene(initial)` → `render()` / `resize(w,h)`（scene.ts:423/4680/1249）边界清晰；体素数据与 32 个资源已本地化，可直接用于方案 B/C。
+- **推荐**：只在 Godot 里玩到它 → 方案 A（gdCEF 壳，桌面）；做原生可导出游戏 → 方案 C；想复用 JS 逻辑且能接受 beta 工具链 → 方案 B（GodotJS）。
+- 本机 Godot 4.7.2 已实机运行探针，故原“未安装故未做实机”的表述作废。完整 WebView 演示仍需下载 gdCEF 的 500MB CEF 产物（规则12：属开发资源、按需下载、不重复），本次未下载，属**已验证可行性但未做端到端落地**的部分。
 
 ---
 
@@ -173,21 +198,29 @@
 | S9 | Godot 特性页 | https://godotengine.org/features/ | 社区 JS binding、GDExtension、渲染能力 |
 | S10 | Godot SpriteMesh 指南(CSDN) | https://blog.csdn.net/weixin_42526249/article/details/160724775 | SpriteMesh 2D→3D 网格插件机制（社区信源，辅助） |
 | S11 | twopoint5d | https://gitee.com/atuxe/twopoint5d （上游 spearwolf/twopoint5d, Apache-2.0） | 竞品 clone 分析 |
+| S12 | GodotJS 官方仓库 | https://github.com/godotjs/GodotJS | MIT；Godot 4.x 的 JS/TS ScriptLanguage；V8/QuickJS/JSCore/宿主浏览器；`core functionality ... still under testing`；4.7 support WIP/CI disabled |
+| S13 | GodotJS 镜像说明 | https://mygit.top/repository/789340710 | v1.1.0.beta1-4.6.1（2026-04）、特性与平台支持矩阵 |
+| S14 | GDCEF Godot4 | https://www.godotengine.org/asset-library/asset/2508 | MIT；CEF 嵌入 Godot 4.2+ Win/Linux；含 `execute_javascript`；约 500MB 产物；移动不支持 |
+| S15 | godot-cef (dsh0416) | https://github.com/dsh0416/godot-cef （经 https://gimtrist.com/games/godot-cef/ 核实） | MIT；跨平台 GPU 加速 CEF WebView GDExtension |
+| S16 | 本机 Godot 实机 | `E:\dev\godot\Godot_v4.7.2-stable_win64_console.exe --version` + `others/godot_probe/probe.gd` | 版本 4.7.2、无 WebView 类、有 JavaScriptBridge、`.ts` 无 loader |
 
 本地一手证据（本次实测产物）：
-`others/game_online.png`、`others/game_local.png`、`others/game_offline.png`、`others/share_payload.json`、`others/assets_raw_manifest.json`、`others/fetch_manifest.json`。
+`others/game_online.png`、`others/game_local.png`、`others/game_offline.png`、`others/share_payload.json`、`others/assets_raw_manifest.json`、`others/fetch_manifest.json`、`others/godot_probe/probe.gd`。
 
 ---
 
 ## 7. 代码评审与 bug 复盘（规则8/9）
 
-抓取/镜像脚本评审发现并修复 3 个 bug，均已举一反三：
+抓取/镜像脚本评审发现并修复 3 个 bug + 环境探测 1 个误判，均已举一反三：
 
 1. **URL 双重前缀**（`01_fetch_fragment.py`）：`urljoin` 结果带签名 token 前缀，未剥离导致 lib 依赖 404。修复：`normalize()` 剥掉 `BASE_PATH`。教训：签名代理路径下所有相对解析都要以“根 URL 的 path”为基准。
 2. **`curl -o` 吞掉响应体**（`02_fetch_assets.py`）：把 body 写文件后 stdout 只剩状态码，误把 1 字节状态码当内容。修复：不用 `-o`，从 stdout `rsplit(b'\n',1)` 分离 body 与 code。教训：自动化下载不要把“状态输出”和“数据输出”混到不同 fd 后再假设。
 3. **`?module` 裸参数被丢弃**（`04_local_server.py`）：`urllib.parse.parse_qs('module') == {}`，导致资源路由失效、返回音频二进制给 ESM import。修复：`keep_blank_values=True`。教训：Python `parse_qs` 默认丢空值参数，浏览器常见的 flag 型 query 必须显式保留。
 
-举一反三检查：同类相对 URL/裸参数问题已在 01/02/02b/03/04 全部脚本统一审视，manifest 中 32/32 sha256 校验通过即为回归验证。
+4. **环境探测假阴性（最严重，用户指出）**：用 `command -v godot` 判“未安装”，实际 `E:\dev\godot\Godot_v4.7.2-stable_win64.exe` 存在且在 PATH 中。根因是**只按命令名探测、未枚举 PATH 目录 + 文件名模式、未读规则13 指定的环境清单**。修复：读 `C:\src\RAG_LLM_agents\docs\000_工作规则与开发环境.md` + `C:\src\CTF\环境清单.md`，按 `PATH 目录 + *godot*.exe` 复核，并写了实机探针。举一反三：**任何“工具不存在”结论必须双路径验证（command -v + 约定目录 glob），并先读环境清单文件**；此规则已写入项目 memory。
+5. **探针脚本 API 错误**：`ScriptLanguage.get_name()` 在 Godot 4.7 不存在，实机报错。修复：`str(l)` 反射；探针 v2 跑通。教训：跨版本引擎 API 要先小探针验证，不要假设旧版 API 仍存在。
+
+举一反三检查：同类相对 URL/裸参数问题已在 01/02/02b/03/04 全部脚本统一审视，manifest 中 32/32 sha256 校验通过即为回归验证；环境探测误判已按上述规则修正并实机复核。
 
 ---
 
