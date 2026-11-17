@@ -82,7 +82,7 @@ loadSprites();
 /* ---------- 状态 ---------- */
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
 let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-            trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null};
+            trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0};
 let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
          pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
          f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
@@ -151,12 +151,24 @@ function mouseToGround(){
 }
 
 /* ---------- 攻击 ---------- */
+// 重力加速度（世界单位/秒²）：投射物走抛物线，而不是直线穿模
+const GRAVITY = 24;
+// 给定起点、目标、水平速度，解出能命中目标的初速度（含竖直分量）
+function ballistic(from,to,horizSpeed){
+  const dx=to.x-from.x, dz=to.z-from.z;
+  const d=Math.hypot(dx,dz);
+  const T=Math.max(0.28, d/horizSpeed);              // 预计飞行时间
+  return {
+    x:dx/T, z:dz/T,
+    y:(to.y-from.y + 0.5*GRAVITY*T*T)/T             // 由 h=vy*T-½gT² 反解
+  };
+}
 function castBolt(){
   if(!game.started||game.over||player.qi<8)return;
   const aim=mouseToGround(); if(!aim)return;
   player.qi-=8;
-  bolts.push({pos:{...player.pos},aim,dir:V.norm(V.sub(aim,player.pos)),
-              speed:120,life:2.4,dmg:26,rad:10});
+  const v=ballistic(player.pos,aim,110);
+  bolts.push({pos:{...player.pos},v,life:3.0,dmg:26,rad:10});
 }
 function castZone(){
   if(!game.started||game.over||player.qi<25)return;
@@ -209,7 +221,7 @@ function burst(pos,n,color,spd){
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
   player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-          trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null};
+          trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0};
   enemies=[];bolts=[];zones=[];particles=[];dmgNums=[];eBullets=[];
   for(let i=0;i<10;i++)spawnEnemy(false);
   initClouds(); cam.yaw=0;cam.pitchIdx=1;
@@ -220,8 +232,11 @@ function update(dt){
   if(!game.started||game.over)return;
   game.time+=dt; game.flash=Math.max(0,game.flash-dt*2.5);
   player.inv=Math.max(0,player.inv-dt);
-  // 海面上空灵力回复更快（安全区）
+  // 灵力回复（海面更快）；气血在脱战 3 秒后缓慢自愈
   player.qi=clamp(player.qi+dt*(isSea(player.pos.x,player.pos.z)?11:7),0,player.maxQi);
+  if(game.time-player.lastHit>3 && player.hp<player.maxHp){
+    player.hp=clamp(player.hp+dt*2.2,0,player.maxHp);
+  }
 
   const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
   const right={x:Math.cos(cam.yaw),y:0,z:Math.sin(cam.yaw)};
@@ -276,21 +291,32 @@ function update(dt){
     }else{
       if(dist<70&&e.cd<=0){
         const from={x:e.x,y:e.y+8,z:e.z};
-        eBullets.push({p:from,dir:V.norm(V.sub(player.pos,from)),speed:34,life:3});e.cd=2.3;
+        const v=ballistic(from,player.pos,40);
+        eBullets.push({p:from,v,life:3.5});e.cd=2.3;
       }
       if(dist>45){e.x+=dx/dist*4*dt;e.z+=dz/dist*4*dt;}
     }
     e.y=terrainH(e.x,e.z);
   }
   for(let i=eBullets.length-1;i>=0;i--){
-    const b=eBullets[i]; b.p=V.add(b.p,V.mul(b.dir,b.speed*dt));b.life-=dt;
+    const b=eBullets[i];
+    b.v.y-=GRAVITY*dt;                                  // 受重力：上升减速、下落加速
+    b.p=V.add(b.p,V.mul(b.v,dt));b.life-=dt;
     if(Math.hypot(b.p.x-player.pos.x,b.p.y-player.pos.y,b.p.z-player.pos.z)<6){hurtPlayer(8);eBullets.splice(i,1);continue;}
-    if(b.life<=0||b.p.y<terrainH(b.p.x,b.p.z))eBullets.splice(i,1);
+    // 打不中玩家 → 抛物线回落到地面，溅起小范围尘土后消失
+    const ground=terrainH(b.p.x,b.p.z);
+    if(b.p.y<=ground){burst({x:b.p.x,y:ground+0.5,z:b.p.z},5,'#c98a5a',1.2);eBullets.splice(i,1);continue;}
+    if(b.life<=0)eBullets.splice(i,1);
   }
   for(let i=bolts.length-1;i>=0;i--){
-    const b=bolts[i];b.pos=V.add(b.pos,V.mul(b.dir,b.speed*dt));b.life-=dt;
+    const b=bolts[i];
+    b.v.y-=GRAVITY*dt;                                  // 剑诀同样走抛物线
+    b.pos=V.add(b.pos,V.mul(b.v,dt));b.life-=dt;
     if(Math.random()<0.6)particles.push({p:{...b.pos},v:{x:0,y:0,z:0},life:0.25,max:0.25,color:'#8ff0e0',size:2.5});
-    if(Math.hypot(b.aim.x-b.pos.x,b.aim.z-b.pos.z)<3||b.life<=0){
+    // 触地即爆（落点由弹道决定，不再依赖瞄准点距离）
+    const ground=terrainH(b.pos.x,b.pos.z);
+    if(b.pos.y<=ground||b.life<=0){
+      b.pos.y=Math.max(b.pos.y,ground);
       burst(b.pos,14,'#8ff0e0',2.0);
       for(const e of enemies)if(Math.hypot(e.x-b.pos.x,e.z-b.pos.z)<b.rad)hurtEnemy(e,b.dmg);
       bolts.splice(i,1);
@@ -319,6 +345,7 @@ function update(dt){
 function hurtPlayer(d){
   if(player.inv>0)return;
   player.hp-=d;player.inv=0.6;game.flash=1;
+  player.lastHit=game.time;                    // 受击后重置自愈计时
   if(player.hp<=0){player.hp=0;game.over=true;}
 }
 
@@ -541,6 +568,12 @@ function drawHUD(){
   const ground=terrainH(player.pos.x,player.pos.z);
   ctx.fillText(`高度 ${Math.round(player.pos.y-Math.max(ground,0))} 丈`,22,136);
   ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°`,22,156);
+  const canRegen=game.time-player.lastHit>3;
+  if(!canRegen&&player.hp<player.maxHp){
+    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText('气血回复：受击中…',22,176);
+  }else if(player.hp<player.maxHp){
+    ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText('气血回复中 +2.2/秒',22,176);
+  }
   ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
   ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
