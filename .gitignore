@@ -4,6 +4,7 @@ others/twopoint5d/
 others/assets_raw/
 others/assets_dl/
 others/game_src_tree/
+others/game_src/
 others/local_site/
 others/godot_probe/
 others/*.png
