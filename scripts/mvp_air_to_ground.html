@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>御剑·空对地 — MVP v2.3 视觉特效</title>
+<title>御剑·空对地 — MVP v2.4 Forge 地形云层</title>
 <style>
   html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;}
   canvas{display:block;}
@@ -50,18 +50,38 @@ const lerp=(a,b,t)=>a+(b-a)*t;
 const dist3=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
 const horizDist=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
 
-/* ---------- 山海地形 ---------- */
-// 大陆轮廓：>0 陆地，<0 海洋。原点附近为陆地，向 -x 方向入海
-function continent(x,z){
-  return Math.sin(x*0.005+0.5)*Math.cos(z*0.004)
-       + 0.3*Math.sin(z*0.011);
+/* ---------- Forge 风格地形：确定性值噪声 + 阶梯高度 ---------- */
+// 整数 hash，避免每帧 Math.sin；输入可为负数。
+function hash2(x,z){
+  let n=(Math.imul(x|0,374761393)+Math.imul(z|0,668265263))|0;
+  n=Math.imul(n^(n>>>13),1274126177);
+  return ((n^(n>>>16))>>>0)/4294967295;
 }
+function valueNoise(x,z){
+  const xi=Math.floor(x),zi=Math.floor(z),xf=x-xi,zf=z-zi;
+  const u=xf*xf*(3-2*xf),v=zf*zf*(3-2*zf);
+  const a=lerp(hash2(xi,zi),hash2(xi+1,zi),u);
+  const b=lerp(hash2(xi,zi+1),hash2(xi+1,zi+1),u);
+  return lerp(a,b,v);
+}
+function fbm(x,z){
+  let amp=0.5,f=1,sum=0,norm=0;
+  for(let i=0;i<5;i++){sum+=amp*valueNoise(x*f,z*f);norm+=amp;amp*=0.5;f*=2;}
+  return sum/norm;
+}
+// 大陆轮廓：>0 陆地，<0 海洋。保留原点附近为陆地，远处有海。
+function continent(x,z){
+  return fbm(x*0.0032+16.0,z*0.0032-22.0)*1.8-0.72
+       + 0.12*Math.sin(x*0.006+0.5)*Math.cos(z*0.005);
+}
+// 高度量级与 v2.3 接近（海面 0，陆地 1~40），但内部改为 Forge 式阶梯。
 function terrainH(x,z){
   const c=continent(x,z);
-  if(c<0.05) return -6+c*4;                       // 海床（低于海平面 0）
-  const mountain=Math.pow(Math.max(0,Math.sin(x*0.011)*Math.cos(z*0.009)),2)*26;
-  const hills=Math.sin(x*0.022+z*0.013)*3.5+Math.cos(z*0.019-x*0.008)*3;
-  return 1+c*4+mountain+hills;
+  if(c<0) return -1+c*10;                                  // 深海到浅海
+  if(c<0.035) return 0.8+c*20;                             // 沙滩台地
+  if(c<0.42) return 2+Math.floor(c/0.05)*1.6;              // 草地 8 级
+  if(c<0.60) return 16+Math.floor((c-0.42)/0.045)*2.2;     // 岩石 4 级
+  return 25+Math.floor((c-0.60)/0.08)*2.5;                 // 雪顶 3 级
 }
 function isSea(x,z){ return terrainH(x,z)<0; }
 
@@ -89,6 +109,16 @@ const FREE_FALL_DMG_SCALE = 0.2;          // 失去动力后伤害变为 1/5
 const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
 const VISION_RANGE = 120;                 // 视野半径（丈）
 const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60°
+const FORGE_CLOUD_ALT = 42;               // Forge CLOUD_ALT 对应到本 demo 的低云高度
+const FORGE_CK = 8;                       // Forge 云堆叠层数
+// Forge MAT_TOP（L368-375）：海/沙/草/树/岩/雪
+const FORGE_MAT_TOP=[
+  [36,104,180],[44,124,198],[66,160,216],[104,204,214],
+  [238,220,164],[222,200,140],[96,178,52],[70,148,44],[134,206,76],
+  [70,158,64],[42,122,54],[28,92,46],[146,140,134],[118,112,110],[178,172,162],
+  [246,250,255],[214,226,244]
+];
+const FORGE_HAZE=[188,224,246];
 const SPELLS = {
   sword:{key:'sword',name:'飞剑术',cd:1.0,cost:8,range:30,powerRange:30,
          dmg:26,speed:78,homing:true,count:1,radius:0,color:'#8ff0e0'},
@@ -111,14 +141,32 @@ let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
          f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
 let enemies=[],bolts=[],beams=[],particles=[],dmgNums=[],clouds=[];
 
-/* ---------- 云 ---------- */
+/* ---------- 云：Forge puff cluster（低位成簇云带） ---------- */
 function initClouds(){
   clouds=[];
-  for(let i=0;i<26;i++) clouds.push({
-    x:(Math.random()-0.5)*900, z:(Math.random()-0.5)*900,
-    y:52+Math.random()*58, s:11+Math.random()*15,
-    drift:(Math.random()-0.5)*2.2, phase:Math.random()*6.28
-  });
+  // Forge 用 200 簇圆 puff 生成云图；这里按当前地图尺度取 48 簇。
+  for(let i=0;i<48;i++){
+    const rank=i&15;
+    const ca=Math.random()*Math.PI*2,cr=120+Math.random()*320;
+    const cx=Math.cos(ca)*cr;
+    const cz=Math.sin(ca)*cr;
+    const sc=0.7+Math.random()*Math.random()*1.4;
+    const ang=Math.random()*Math.PI*2;
+    const len=(10+Math.random()*24)*sc;
+    const puffs=[];
+    const count=4+((Math.random()*7)|0);
+    for(let q=0;q<count;q++){
+      const t=(q/(count-1))*2-1;
+      puffs.push({
+        dx:Math.cos(ang)*t*len+(Math.random()-0.5)*8*sc,
+        dz:Math.sin(ang)*t*len+(Math.random()-0.5)*8*sc,
+        r:(5+Math.random()*8)*sc*(1-0.4*Math.abs(t)),
+        tk:2+((Math.random()*(FORGE_CK-1))|0)
+      });
+    }
+    clouds.push({x:cx,z:cz,puffs,drift:(Math.random()-0.5)*2.2,
+                 phase:Math.random()*6.28,rank});
+  }
 }
 
 /* ---------- 输入 ---------- */
@@ -660,33 +708,47 @@ function hurtPlayer(d,opts={}){
  * 渲染
  * ============================================================ */
 function drawSky(){
-  const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#a9cfca');g.addColorStop(0.5,'#e0eae0');g.addColorStop(1,'#f4efe2');
-  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  ctx.fillStyle='rgba(255,248,220,0.85)';
-  ctx.beginPath();ctx.arc(W*0.74,H*0.16,42,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='rgba(70,98,94,0.15)';
-  ctx.beginPath();ctx.moveTo(0,H*0.62);
-  for(let i=0;i<=48;i++){
-    const x=i/48*W,h=Math.sin(i*0.46+cam.yaw*2.2)*20+Math.cos(i*0.19-cam.yaw)*13;
-    ctx.lineTo(x,H*0.55-h);
+  // Forge L597-606：白天八段天蓝，地平线浅、天顶深
+  const stops=[[198,232,250],[122,190,240],[62,142,222]];
+  const N=8;
+  for(let i=0;i<N;i++){
+    const t=1-i/(N-1);                       // i=0 是画面顶部
+    const a=t<0.5?stops[0]:stops[1], b=t<0.5?stops[1]:stops[2];
+    const f=t<0.5?t*2:t*2-1;
+    const col=[0,1,2].map(k=>Math.round(a[k]+(b[k]-a[k])*f));
+    ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
+    ctx.fillRect(0,i*H/N,W,H/N+1);
   }
-  ctx.lineTo(W,H*0.66);ctx.closePath();ctx.fill();
+  // Forge hazeCol [188,224,246] 的近地平线淡雾带
+  ctx.fillStyle='rgba(188,224,246,0.34)';
+  ctx.fillRect(0,H*0.62,W,H*0.16);
+  ctx.fillStyle='rgba(255,248,220,0.65)';
+  ctx.beginPath();ctx.arc(W*0.74,H*0.16,34,0,Math.PI*2);ctx.fill();
 }
-function terrainColor(h,dist,sea){
-  const t=clamp((h+8)/40,0,1);
-  const fog=clamp(1-dist/340,0.12,1);
-  let base;
-  if(sea)base=h<-4?[32,84,116]:[74,146,160];
-  else if(h<2)base=[214,198,150];
-  else if(h<16)base=[92,136,104];
-  else if(h<28)base=[138,136,124];
-  else base=[226,230,224];
-  const sky=[232,237,227];
-  return base.map((v,k)=>Math.round(v*fog+sky[k]*(1-fog)));
+function terrainColor(x,z,h,dist,sea){
+  const hs=hash2(x|0,z|0);
+  const slope=continent(x-30,z+15)-continent(x+30,z-15);
+  let m;
+  if(sea){
+    m=h<-3?0:(h<-1.5?1:2);
+    if(h>-0.8&&hs>0.93)m=3;                        // 稀疏浪花，不做棋盘
+  }else if(h<1.6){
+    m=hs<0.12?5:4;                                 // 沙滩 / 少量沙斑
+  }else if(h<10){
+    m=slope<-0.02?8:(slope>0.02?7:6);              // 按坡度分草地明暗，非随机棋盘
+  }else if(h<16){
+    m=slope>0.03?13:(hs>0.92?14:12);               // 岩石按坡面着色
+  }else{
+    m=slope>0.02?16:15;                            // 雪的明暗面
+  }
+  // Forge 远距雾：颜色逐步混入 hazeCol [188,224,246]
+  const fog=clamp((dist-170)/430,0,0.78);
+  const base=FORGE_MAT_TOP[m];
+  return [0,1,2].map(k=>Math.round(base[k]*(1-fog)+FORGE_HAZE[k]*fog));
 }
+function forgeTree(x,z,h){ return h>=2&&h<10&&hash2((x|0)+401,(z|0)-197)>0.86; }
 function drawTerrain(){
-  const step=30,range=13;
+  const step=25,range=16;   // 更细的网格，读出 Forge 式阶梯岛轮廓
   const cx=Math.round(player.pos.x/step),cz=Math.round(player.pos.z/step);
   const cells=[];
   for(let i=-range;i<range;i++)for(let j=-range;j<range;j++){
@@ -698,21 +760,36 @@ function drawTerrain(){
     const depth=V.dot(V.sub(center,cam.pos),cam.f);
     if(depth<3)continue;
     const pr=corners.map(project); if(pr.some(p=>!p))continue;
-    cells.push({pr,depth,h:my,sea:my<0,mx,mz});
+    cells.push({pr,depth,h:my,sea:my<0,mx,mz,x0,z0,tree:forgeTree(mx,mz,my)});
   }
   cells.sort((a,b)=>b.depth-a.depth);
   for(const c of cells){
-    const col=terrainColor(c.h,c.depth,c.sea);
+    const col=terrainColor(c.mx,c.mz,c.h,c.depth,c.sea);
     let fill=`rgb(${col[0]},${col[1]},${col[2]})`;
     if(c.sea&&c.h>-4){
       const wave=0.5+0.5*Math.sin(game.time*1.6+c.mx*0.05+c.mz*0.04);
-      fill=`rgba(${col[0]},${col[1]+Math.round(wave*18)},${col[2]+Math.round(wave*22)},0.95)`;
+      fill=`rgba(${col[0]},${col[1]+Math.round(wave*14)},${col[2]+Math.round(wave*18)},0.96)`;
     }
     ctx.beginPath();ctx.moveTo(c.pr[0].x,c.pr[0].y);
     for(let i=1;i<4;i++)ctx.lineTo(c.pr[i].x,c.pr[i].y);
     ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-    ctx.strokeStyle=c.sea?'rgba(30,80,110,0.12)':'rgba(36,66,60,0.13)';
+    // Forge 的阶梯边缘：用较暗边线读出一级一级的台地
+    ctx.strokeStyle=c.sea?'rgba(22,72,132,0.30)':(c.h>=16?'rgba(110,128,150,0.30)':'rgba(30,88,38,0.30)');
     ctx.lineWidth=1;ctx.stroke();
+    // Forge 海面波光点
+    if(c.sea&&c.h>-3&&hash2((c.x0/25|0)+((game.time*7)|0),(c.z0/25|0)-11)>0.86){
+      const sp=project({x:c.mx,y:c.h+0.4,z:c.mz});
+      if(sp){ctx.fillStyle='rgba(226,248,255,0.9)';ctx.fillRect(sp.x,sp.y,1.6,1.6);}
+    }
+    // Forge 森林：小锥形树冠
+    if(c.tree){
+      const tp=project({x:c.mx,y:c.h+1,z:c.mz});
+      if(tp){
+        const s=clamp(tp.s*1.5,2,12);
+        ctx.fillStyle='rgba(22,72,40,0.92)';
+        ctx.beginPath();ctx.moveTo(tp.x,tp.y-s*2.2);ctx.lineTo(tp.x-s,tp.y);ctx.lineTo(tp.x+s,tp.y);ctx.closePath();ctx.fill();
+      }
+    }
   }
 }
 function groundCircle(x,z,r,fill,stroke,h){
@@ -816,19 +893,36 @@ function drawPlayer(){
 }
 function drawClouds(){
   const sorted=[...clouds].sort((a,b)=>{
-    const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
-    const db=V.dot(V.sub({x:b.x,y:b.y,z:b.z},cam.pos),cam.f);
+    const da=V.dot(V.sub({x:a.x,y:FORGE_CLOUD_ALT,z:a.z},cam.pos),cam.f);
+    const db=V.dot(V.sub({x:b.x,y:FORGE_CLOUD_ALT,z:b.z},cam.pos),cam.f);
     return db-da;
   });
   ctx.save();
+  const rankMax=9; // 对应 Forge clouds≈0.45 的显示密度
   for(const c of sorted){
-    for(let k=0;k<4;k++){
-      const pp=project({x:c.x+(k-1.5)*c.s*0.6,y:c.y+Math.sin(k+c.phase)*2,z:c.z+k*1.5});
-      if(!pp)continue;
-      ctx.globalAlpha=0.20+0.10*Math.sin(game.time*0.5+c.phase);
-      ctx.beginPath();
-      ctx.ellipse(pp.x,pp.y,Math.max(1,c.s*pp.s*0.85),Math.max(1,c.s*pp.s*0.30),0,0,Math.PI*2);
-      ctx.fillStyle='#ffffff';ctx.fill();
+    if(c.rank>rankMax)continue;
+    for(const p of c.puffs){
+      const base={x:c.x+p.dx,y:FORGE_CLOUD_ALT,z:c.z+p.dz};
+      // 底面：Forge cloudUnder [138,160,200]，压扁避免“千层蛋糕”
+      const under=project({x:base.x,y:FORGE_CLOUD_ALT-1.4,z:base.z});
+      if(under){ctx.globalAlpha=0.42;ctx.fillStyle='rgb(138,160,200)';
+        ctx.beginPath();ctx.ellipse(under.x,under.y,Math.max(1,p.r*under.s*0.94),Math.max(1,p.r*under.s*0.20),0,0,Math.PI*2);ctx.fill();}
+      // 侧面：Forge cloudSide 的浅蓝灰，只留一层
+      const side=project({x:base.x,y:FORGE_CLOUD_ALT+0.4,z:base.z});
+      if(side){
+        const f=p.tk/(FORGE_CK-1);
+        ctx.globalAlpha=0.72;
+        ctx.fillStyle=`rgb(${Math.round(158+44*f)},${Math.round(182+36*f)},${Math.round(222+18*f)})`;
+        ctx.beginPath();ctx.ellipse(side.x,side.y,Math.max(1,p.r*side.s*0.98),Math.max(1,p.r*side.s*0.25),0,0,Math.PI*2);ctx.fill();
+      }
+      // 顶面：Forge cloudTop，越厚越亮
+      const top=project({x:base.x,y:FORGE_CLOUD_ALT+1.0+p.tk*0.12,z:base.z});
+      if(top){
+        const ft=Math.min(1,p.tk/2);
+        ctx.globalAlpha=0.95;
+        ctx.fillStyle=`rgb(${Math.round(218+37*ft)},${Math.round(230+25*ft)},${Math.round(247+8*ft)})`;
+        ctx.beginPath();ctx.ellipse(top.x,top.y,Math.max(1,p.r*top.s*0.94),Math.max(1,p.r*top.s*0.23),0,0,Math.PI*2);ctx.fill();
+      }
     }
   }
   ctx.restore();
@@ -941,7 +1035,7 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.3',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.4',22,30);
   ctx.font='13px "Microsoft YaHei"';
   ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,116);
   const ground=terrainH(player.pos.x,player.pos.z);
