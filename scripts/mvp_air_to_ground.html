@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>御剑·空对地 — MVP v2.5 背视角与飞行操控</title>
+<title>御剑·空对地 — MVP v2.6 穿云切云</title>
 <style>
   html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;}
   canvas{display:block;}
@@ -20,10 +20,9 @@
 <div id="tip">W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2.5 — 背视角素材 / 朝向与相机解耦 / W前进 S后撤 A/D转向
+ * 御剑·空对地 MVP v2.6 — 穿云切云 / 离屏云画布 / 11 秒愈合
  * 定位：docs/009 P0 手感验证原型（非生产版）
- * 相对 v2.4：补充第三人称背视角剑仙素材；修复 A/D 与 S 的相机追尾抖动；
- *            朝向 player.heading 独立于 cam.yaw，自动攻击视野跟随角色朝向。
+ * 相对 v2.5：云层改画在离屏画布；玩家进入云层时按 Forge cutCloud 机制抠出通道并产生雾爆/拖尾，11 秒愈合。
  * 素材：scripts/assets/*_cut.png（AI 生成 + 08/09 抠图脚本处理）
  * 若素材加载失败，自动回退到程序化切片体绘制（保证只拷 HTML 也能玩）
  * ============================================================ */
@@ -32,7 +31,14 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let W, H, focal;
 const FOV = 62 * Math.PI / 180;
-function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; focal=(H/2)/Math.tan(FOV/2); }
+// v2.6：云单独画在离屏画布上，才能用 destination-out 把穿云通道真正抠掉。
+const cloudLayer=document.createElement('canvas');
+const cctx=cloudLayer.getContext('2d');
+function resize(){
+  W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight;
+  cloudLayer.width=W; cloudLayer.height=H;
+  focal=(H/2)/Math.tan(FOV/2);
+}
 window.addEventListener('resize', resize); resize();
 
 /* ---------- 向量与通用工具 ---------- */
@@ -111,6 +117,10 @@ const VISION_RANGE = 120;                 // 视野半径（丈）
 const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60°
 const FORGE_CLOUD_ALT = 42;               // Forge CLOUD_ALT 对应到本 demo 的低云高度
 const FORGE_CK = 8;                       // Forge 云堆叠层数
+// v2.6 切云：Forge CUT_HEAL=11 秒；当前 puff 云用世界单位半径，切后 11 秒愈合。
+const CLOUD_CUT_HEAL = 11;
+const CLOUD_CUT_R = 16;
+const CLOUD_CUT_INTERVAL = 0.12;
 // Forge MAT_TOP（L368-375）：海/沙/草/树/岩/雪
 const FORGE_MAT_TOP=[
   [36,104,180],[44,124,198],[66,160,216],[104,204,214],
@@ -136,7 +146,7 @@ const BOSS_BEAM={range:50,radius:14,duration:1.0,tick:0.2,dmg:7,cd:4.0};
 /* ---------- 状态 ---------- */
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
 let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-            heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
+            heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
 let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
@@ -168,7 +178,7 @@ function initClouds(){
       });
     }
     clouds.push({x:cx,z:cz,puffs,drift:(Math.random()-0.5)*2.2,
-                 phase:Math.random()*6.28,rank});
+                 phase:Math.random()*6.28,rank,cuts:[],cutDue:0});
   }
 }
 
@@ -569,6 +579,17 @@ function fxRing(pos,color,r0,r1,life,width){
   pushParticle({kind:'ring',p:{...pos},v:{x:0,y:0,z:0},life,
     color,r:r0,r0,r1,width:width||2,grav:0});
 }
+/* v2.6：穿云瞬间，云在角色周围炸开成一圈雾（对应 Forge stepClouds 的 14 股 vapour）。 */
+function fxCloudEnterBurst(){
+  const p=player.pos;
+  fxRing(p,'rgba(235,244,255,0.95)',1,6,0.42,3);
+  for(let k=0;k<14;k++){
+    const a=k/14*Math.PI*2;
+    pushParticle({kind:'smoke',p:{x:p.x+Math.sin(a)*2,y:p.y,z:p.z+Math.cos(a)*2},
+      v:{x:Math.cos(a)*14+player.dir.x*4,y:2+Math.random()*3,z:Math.sin(a)*14+player.dir.z*4},
+      life:0.75,color:'#eaf2ff',size:3.2,grav:0,drag:1.4});
+  }
+}
 function fxSwordHit(pos){
   fxRing(pos,'rgba(120,245,225,0.95)',1,8,0.36,3);
   for(let i=0;i<10;i++){
@@ -629,12 +650,55 @@ function fxGuidanceLost(pos){
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
   player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-          heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
+          heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
   enemies=[];bolts=[];beams=[];lightningZones=[];particles=[];dmgNums=[];
   for(let i=0;i<10;i++)spawnEnemy(false);
   initClouds(); cam.yaw=player.heading;cam.pitchIdx=1;
+}
+
+/* v2.6：Forge 式切云。云簇自身的 cuts 存局部坐标，随云漂移；11 秒后愈合。 */
+function updateCloudCutting(dt){
+  let inside=false;
+  const py=player.pos.y;
+  const inLayer=py>=FORGE_CLOUD_ALT-3&&py<=FORGE_CLOUD_ALT+FORGE_CK+3;
+  for(const c of clouds){
+    c.cutDue=Math.max(0,(c.cutDue||0)-dt);
+    for(let i=c.cuts.length-1;i>=0;i--){
+      if(game.time-c.cuts[i].t0>CLOUD_CUT_HEAL)c.cuts.splice(i,1);
+    }
+  }
+  if(!inLayer){player.inCloud=false;player.cloudVapourDue=0;return false;}
+  for(const c of clouds){
+    if(c.rank>9)continue;
+    let hit=false;
+    for(const p of c.puffs){
+      const px=c.x+p.dx,pz=c.z+p.dz;
+      if(Math.hypot(player.pos.x-px,player.pos.z-pz)<p.r+3){hit=true;break;}
+    }
+    if(!hit)continue;
+    inside=true;
+    if(c.cutDue<=0){
+      c.cuts.push({dx:player.pos.x-c.x,dz:player.pos.z-c.z,r:CLOUD_CUT_R,t0:game.time});
+      c.cutDue=CLOUD_CUT_INTERVAL;
+    }
+  }
+  if(inside&&!player.inCloud)fxCloudEnterBurst();
+  player.inCloud=inside;
+  if(inside){
+    player.cloudVapourDue-=dt*60;
+    while(player.cloudVapourDue<=0){
+      const side=Math.random()<0.5?-1:1;
+      const nx=-player.dir.z,nz=player.dir.x;
+      pushParticle({kind:'smoke',
+        p:{x:player.pos.x+nx*side*1.5,y:player.pos.y-0.6,z:player.pos.z+nz*side*1.5},
+        v:{x:nx*side*8-player.dir.x*6,y:1+Math.random()*2,z:nz*side*8-player.dir.z*6},
+        life:0.6,color:'#eaf2ff',size:2.4,grav:0,drag:1.8});
+      player.cloudVapourDue+=1;
+    }
+  }else player.cloudVapourDue=0;
+  return inside;
 }
 
 /* ---------- 更新 ---------- */
@@ -692,6 +756,7 @@ function update(dt){
   if(player.trail.length>22)player.trail.shift();
 
   for(const c of clouds){ c.x+=c.drift*dt*3; if(c.x>500)c.x-=1000; if(c.x<-500)c.x+=1000; }
+  updateCloudCutting(dt);
 
   // 玩家自动斗法：视野内 + 射程内 + 有灵力 + 冷却就绪，按最大期望伤害选技能
   tryAutoAttack('player');
@@ -949,40 +1014,82 @@ function drawPlayer(){
   if(player.dive)groundCircle(player.pos.x,player.pos.z,12,null,'rgba(120,240,220,0.7)');
 }
 function drawClouds(){
+  cctx.clearRect(0,0,W,H);
   const sorted=[...clouds].sort((a,b)=>{
     const da=V.dot(V.sub({x:a.x,y:FORGE_CLOUD_ALT,z:a.z},cam.pos),cam.f);
     const db=V.dot(V.sub({x:b.x,y:FORGE_CLOUD_ALT,z:b.z},cam.pos),cam.f);
     return db-da;
   });
-  ctx.save();
+  cctx.save();
   const rankMax=9; // 对应 Forge clouds≈0.45 的显示密度
   for(const c of sorted){
     if(c.rank>rankMax)continue;
     for(const p of c.puffs){
+      // 先按世界坐标剔除被切开的 puff，再靠离屏 destination-out 柔化边缘。
+      let keep=1;
+      for(const cut of c.cuts){
+        const heal=clamp((CLOUD_CUT_HEAL-(game.time-cut.t0))/3,0,1);
+        if(heal<=0)continue;
+        const d=Math.hypot(p.dx-cut.dx,p.dz-cut.dz);
+        const rr=cut.r*heal;
+        if(d<rr*0.8){keep=0;break;}
+        if(d<rr+p.r)keep=Math.min(keep,clamp((d-rr*0.8)/(p.r+rr*0.2),0,1));
+      }
+      if(keep<=0.04)continue;
       const base={x:c.x+p.dx,y:FORGE_CLOUD_ALT,z:c.z+p.dz};
       // 底面：Forge cloudUnder [138,160,200]，压扁避免“千层蛋糕”
       const under=project({x:base.x,y:FORGE_CLOUD_ALT-1.4,z:base.z});
-      if(under){ctx.globalAlpha=0.42;ctx.fillStyle='rgb(138,160,200)';
-        ctx.beginPath();ctx.ellipse(under.x,under.y,Math.max(1,p.r*under.s*0.94),Math.max(1,p.r*under.s*0.20),0,0,Math.PI*2);ctx.fill();}
+      if(under){cctx.globalAlpha=0.42*keep;cctx.fillStyle='rgb(138,160,200)';
+        cctx.beginPath();cctx.ellipse(under.x,under.y,Math.max(1,p.r*under.s*0.94),Math.max(1,p.r*under.s*0.20),0,0,Math.PI*2);cctx.fill();}
       // 侧面：Forge cloudSide 的浅蓝灰，只留一层
       const side=project({x:base.x,y:FORGE_CLOUD_ALT+0.4,z:base.z});
       if(side){
         const f=p.tk/(FORGE_CK-1);
-        ctx.globalAlpha=0.72;
-        ctx.fillStyle=`rgb(${Math.round(158+44*f)},${Math.round(182+36*f)},${Math.round(222+18*f)})`;
-        ctx.beginPath();ctx.ellipse(side.x,side.y,Math.max(1,p.r*side.s*0.98),Math.max(1,p.r*side.s*0.25),0,0,Math.PI*2);ctx.fill();
+        cctx.globalAlpha=0.72*keep;
+        cctx.fillStyle=`rgb(${Math.round(158+44*f)},${Math.round(182+36*f)},${Math.round(222+18*f)})`;
+        cctx.beginPath();cctx.ellipse(side.x,side.y,Math.max(1,p.r*side.s*0.98),Math.max(1,p.r*side.s*0.25),0,0,Math.PI*2);cctx.fill();
       }
       // 顶面：Forge cloudTop，越厚越亮
       const top=project({x:base.x,y:FORGE_CLOUD_ALT+1.0+p.tk*0.12,z:base.z});
       if(top){
         const ft=Math.min(1,p.tk/2);
-        ctx.globalAlpha=0.95;
-        ctx.fillStyle=`rgb(${Math.round(218+37*ft)},${Math.round(230+25*ft)},${Math.round(247+8*ft)})`;
-        ctx.beginPath();ctx.ellipse(top.x,top.y,Math.max(1,p.r*top.s*0.94),Math.max(1,p.r*top.s*0.23),0,0,Math.PI*2);ctx.fill();
+        cctx.globalAlpha=0.95*keep;
+        cctx.fillStyle=`rgb(${Math.round(218+37*ft)},${Math.round(230+25*ft)},${Math.round(247+8*ft)})`;
+        cctx.beginPath();cctx.ellipse(top.x,top.y,Math.max(1,p.r*top.s*0.94),Math.max(1,p.r*top.s*0.23),0,0,Math.PI*2);cctx.fill();
       }
     }
   }
-  ctx.restore();
+  cctx.restore();
+
+  /* v2.6：Forge cutCloud 的视觉等价——把玩家经过的云层区域从云画布中抠掉，
+     外圈薄化、内圈全清；cut 存局部坐标所以随云漂移，超过 11 秒后半径缩回并消失。 */
+  cctx.save();
+  cctx.globalCompositeOperation='destination-out';
+  cctx.fillStyle='#000';
+  for(const c of clouds){
+    if(c.rank>9)continue;
+    for(const cut of c.cuts){
+      const age=game.time-cut.t0;
+      const heal=clamp((CLOUD_CUT_HEAL-age)/3,0,1);
+      if(heal<=0)continue;
+      const cp=project({x:c.x+cut.dx,y:FORGE_CLOUD_ALT+0.5,z:c.z+cut.dz});
+      if(!cp)continue;
+      const r=Math.min(260,cut.r*cp.s*heal);
+      if(r<1)continue;
+      cctx.globalAlpha=0.35*heal;
+      cctx.beginPath();cctx.arc(cp.x,cp.y,r*1.38,0,Math.PI*2);cctx.fill();
+      cctx.globalAlpha=0.95*heal;
+      for(let k=0;k<7;k++){
+        const a=k/7*Math.PI*2+cut.t0*0.7;
+        const rr=r*(0.68+0.12*Math.sin(k*2.7+cut.t0));
+        cctx.beginPath();
+        cctx.arc(cp.x+Math.cos(a)*r*0.22,cp.y+Math.sin(a)*r*0.10,rr,0,Math.PI*2);
+        cctx.fill();
+      }
+    }
+  }
+  cctx.restore();
+  ctx.drawImage(cloudLayer,0,0);
 }
 function drawBeams(){
   for(const b of beams){
@@ -1119,12 +1226,12 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.5',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.6',22,30);
   ctx.font='13px "Microsoft YaHei"';
   ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,116);
   const ground=terrainH(player.pos.x,player.pos.z);
   ctx.fillText(`高度 ${Math.round(player.pos.y-Math.max(ground,0))} 丈`,22,136);
-  ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°`,22,156);
+  ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   穿云中':''}`,22,156);
   const canRegen=game.time-player.lastHit>3;
   if(!canRegen&&player.hp<player.maxHp){
     ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText('气血回复：受击中…',22,176);
