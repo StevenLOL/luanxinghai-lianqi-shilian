@@ -113,8 +113,14 @@ loadSprites();
 const GRAVITY = 24;
 const FREE_FALL_DMG_SCALE = 0.2;          // 失去动力后伤害变为 1/5
 const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
-const VISION_RANGE = 120;                 // 视野半径（丈）
-const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60°
+const VISION_RANGE = 120;                 // 视野半径（丈）· 练气 1 层基准
+const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60° · 练气 1 层基准
+/* v2.8 等级系统：练气 1→12 层。经验曲线 expToNext(lv)=round(14*lv^1.45+8)，
+   击杀妖兽 +20 / 敌修 +24 / Boss +150。每层成长见 levelBonus()。 */
+const LEVEL_MAX = 12;
+const EXP_KILL = {beast:20,archer:24,boss:150};
+function expToNext(lv){ return lv>=LEVEL_MAX?Infinity:Math.round(14*Math.pow(lv,1.45)+8); }
+const LV_GROW={hp:14,qi:10,hpRegen:0.45,qiRegen:0.8,vision:7,visionDeg:1,range:2.5};
 const FORGE_CLOUD_ALT = 42;               // Forge CLOUD_ALT 对应到本 demo 的低云高度
 const FORGE_CK = 8;                       // Forge 云堆叠层数
 // v2.6 切云：Forge CUT_HEAL=11 秒；当前 puff 云用世界单位半径，切后 11 秒愈合。
@@ -129,30 +135,71 @@ const FORGE_MAT_TOP=[
   [246,250,255],[214,226,244]
 ];
 const FORGE_HAZE=[188,224,246];
+/* v2.7：1 号技能改为金色剑气（与脚下青蓝御剑、火球橙红、冰剑蓝白区分）。
+   type:'bolt' 走投射物系统；type:'zone' 走区域持续法术（雷法）。 */
 const SPELLS = {
   sword:{key:'sword',name:'飞剑术',cd:1.0,cost:8,range:30,powerRange:30,
-         dmg:26,speed:78,homing:true,count:1,radius:0,color:'#8ff0e0'},
+         dmg:26,speed:78,homing:true,count:1,radius:0,color:'#ffd45e',type:'bolt'},
   fire :{key:'fire', name:'火球',  cd:0.8,cost:14,range:40,powerRange:40,
-         dmg:34,speed:58,homing:true,count:1,radius:12,color:'#ff9a4d'},
+         dmg:34,speed:58,homing:true,count:1,radius:12,color:'#ff9a4d',type:'bolt'},
   ice  :{key:'ice',  name:'冰剑术',cd:0.7,cost:12,range:20,powerRange:20,
-         dmg:14,speed:92,homing:false,count:3,radius:0,color:'#9fd8ff'}
+         dmg:14,speed:92,homing:false,count:3,radius:0,color:'#9fd8ff',type:'bolt'}
 };
-const SPELL_ORDER=['sword','fire','ice'];
-// 雷系功法：玩家手动指定区域，持续落雷 1s。不进 SPELL_ORDER，不走自动决策。
+// 雷系功法：持续型区域法术。v2.7 起自动选取敌群中心释放，并参与自动斗法评分。
+// 数值定位：广域（14 丈，比火球 12 宽）+ 连锁（命中目标每多一个，单跳伤害 +60%）。
+// 单体效率低于火球/冰剑，但敌群越多越划算 —— 于是自动决策会自然地
+// "有 3 个以上聚团敌人 → 放雷法，散兵 → 放火球/冰剑"。
 const LIGHTNING={key:'lightning',name:'雷系功法',cd:2.0,cost:18,range:20,
-                 radius:10,duration:1.0,tick:0.2,dmg:10,color:'#b99bff'};
+                 radius:14,duration:1.0,tick:0.2,dmg:12,chain:0.6,color:'#c9a8ff',
+                 type:'zone',homing:false,count:1,speed:0};
+SPELLS.lightning=LIGHTNING;
+const SPELL_ORDER=['sword','fire','ice','lightning'];   // 玩家可自动决策的法术
+const ENEMY_SPELL_ORDER=['sword','fire','ice'];         // 敌人只配 1/2/3 号技能（v2.2 设定）
 const BOSS_BEAM={range:50,radius:14,duration:1.0,tick:0.2,dmg:7,cd:4.0};
 
 /* ---------- 状态 ---------- */
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
+let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
-let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
+let cam={yaw:0,yawRate:0,pitchIdx:1,dist:44,pitches:[25,45,70],mode:'soft',bank:0,
          pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
          f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
 let enemies=[],bolts=[],beams=[],lightningZones=[],particles=[],dmgNums=[],clouds=[];
+
+/* v2.8 等级派生属性：只作用于主角，敌人始终用 1 层基准值。 */
+function pLevel(){ return player.level||1; }
+function pBonus(){ return pLevel()-1; }                       // 1 层=0，12 层=11
+function pVisionRange(){ return VISION_RANGE+LV_GROW.vision*pBonus(); }
+function pVisionHalf(){ return VISION_HALF_ANGLE+LV_GROW.visionDeg*pBonus()*Math.PI/180; }
+function spellRange(key,ownerKey){
+  const S=SPELLS[key]; if(!S)return 0;
+  return ownerKey==='player'?S.range+LV_GROW.range*pBonus():S.range;
+}
+function powerRange(key,ownerKey){
+  const S=SPELLS[key]; if(!S)return 0;
+  return ownerKey==='player'?S.powerRange+LV_GROW.range*pBonus():S.powerRange;
+}
+function pRegenHp(){ return 2.2+LV_GROW.hpRegen*pBonus(); }
+function pRegenQi(isSea){ return (isSea?11:7)+LV_GROW.qiRegen*pBonus(); }
+/* 击杀获得经验；可连升多级，升级补满当期新增的 hp/qi 并触发金光特效。 */
+function addExp(amount){
+  if(pLevel()>=LEVEL_MAX){player.exp=0;return 0;}   // 满级后经验始终清零
+  player.exp+=amount;
+  let ups=0;
+  while(pLevel()<LEVEL_MAX&&player.exp>=expToNext(pLevel())){
+    player.exp-=expToNext(pLevel());
+    player.level++;
+    player.maxHp+=LV_GROW.hp; player.hp=Math.min(player.maxHp,player.hp+LV_GROW.hp+18);
+    player.maxQi+=LV_GROW.qi; player.qi=Math.min(player.maxQi,player.qi+LV_GROW.qi+12);
+    fxRing(player.pos,'#ffe9a8',1.2,7,0.55,5);
+    burst({x:player.pos.x,y:player.pos.y+2,z:player.pos.z},28,'#ffe9a8',3.4);
+    ups++;
+  }
+  if(pLevel()>=LEVEL_MAX){player.exp=0;}
+  return ups;
+}
 
 /* ---------- 云：Forge puff cluster（低位成簇云带） ---------- */
 function initClouds(){
@@ -190,9 +237,14 @@ window.addEventListener('keydown',e=>{
   if(k==='1')castManual('sword');
   if(k==='2')castManual('fire');
   if(k==='3')castManual('ice');
-  if(k==='4'||k==='l')castLightning();
+  if(k==='4'||k==='l')castLightning();          // v2.7：雷法自动选敌自动释放
   if(k==='j')castManual('sword'); if(k==='k')castManual('fire');
   if(k==='z')cam.pitchIdx=0; if(k==='x')cam.pitchIdx=1; if(k==='c')cam.pitchIdx=2;
+  if(k==='b'){                                  // v2.7：相机手感档位
+    cam.mode=cam.mode==='soft'?'snap':'soft';
+    cam.yawRate=0;
+    player.camNote=`相机 ${CAM_MODE_NAME[cam.mode]}`;
+  }
   if(k==='f'){player.auto=!player.auto;player.autoChoice=player.auto?'自动开启':'自动关闭';}
   if(k==='v')player.showVision=!player.showVision;
   if(k==='r')reset();
@@ -209,19 +261,62 @@ window.addEventListener('mousedown',e=>{
 window.addEventListener('contextmenu',e=>e.preventDefault());
 
 /* ---------- 相机与投影 ---------- */
-function updateCamera(dt){
+/* v2.7 转向手感：调研结论（信源见 docs/011 §相机）
+   - Cinemachine Dead Zone：角色朝向的"微调"不带动相机，消掉按键边缘的视角抖动。
+   - Cinemachine Yaw Damping + UE5 SpringArm CameraRotationLagSpeed：
+     相机偏航用带角速度上限的阻尼跟随，转向时不会"啪"地甩一下。
+   - Lookahead：注视点沿角色朝向前移，旋转支点前移，观感更顺。
+   - 死区之外的角度按比例增益跟随，转得越快相机越跟得上（避免脱手）。
+   三档：柔和 soft（默认）/ 灵敏 snap / 定角 lock（相机不旋转，只平移跟随）。
+*/
+const CAM_PRESETS={
+  soft:{dead:0.18,gain:3.2,maxRate:2.4,posLag:5.5,smooth:6.5,lead:0.34},
+  snap:{dead:0.03,gain:12.0,maxRate:9.0,posLag:9.0,smooth:14.0,lead:0.20}
+};
+const CAM_MODE_NAME={soft:'柔和',snap:'灵敏',lock:'定角'};
+function camCfg(){ return cam.mode==='snap'?CAM_PRESETS.snap:CAM_PRESETS.soft; }
+function updateCameraYaw(dt){
+  if(cam.mode==='lock')return;                 // 定角：相机朝向恒定，只平移
+  const cfg=camCfg();
+  const err=wrapAngle(player.heading-cam.yaw);
+  const a=Math.abs(err);
+  if(a<=cfg.dead){                              // 死区：微调不动相机
+    cam.yawRate*=Math.exp(-cfg.smooth*dt);
+    return;
+  }
+  const over=err-Math.sign(err)*cfg.dead;       // 只跟随超出死区的部分
+  const rate=clamp(over*cfg.gain,-cfg.maxRate,cfg.maxRate);
+  cam.yawRate=lerp(cam.yawRate,rate,1-Math.exp(-cfg.smooth*dt));
+  cam.yaw=wrapAngle(cam.yaw+cam.yawRate*dt);
+}
+function updateCameraFollow(dt){
+  updateCameraYaw(dt);
   const p=player.pos;
   const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
   const pitch=cam.pitches[cam.pitchIdx];
   const upOff=8+(pitch-25)*0.52;
   const desired={x:p.x-fwd.x*cam.dist,y:p.y+upOff,z:p.z-fwd.z*cam.dist};
-  cam.pos.x=lerp(cam.pos.x,desired.x,1-Math.exp(-7*dt));
-  cam.pos.y=lerp(cam.pos.y,desired.y,1-Math.exp(-7*dt));
-  cam.pos.z=lerp(cam.pos.z,desired.z,1-Math.exp(-7*dt));
-  cam.target={x:p.x+fwd.x*10,y:p.y-4,z:p.z+fwd.z*10};
+  const k=1-Math.exp(-camCfg().posLag*dt);
+  cam.pos.x=lerp(cam.pos.x,desired.x,k);
+  cam.pos.y=lerp(cam.pos.y,desired.y,k);
+  cam.pos.z=lerp(cam.pos.z,desired.z,k);
+}
+function updateCameraBasis(){
+  const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
+  // Lookahead：注视点沿角色朝向（而非相机朝向）前移，旋转支点落在前方。
+  const hd=facingVec(player.heading);
+  const lead=camCfg().lead*12;
+  cam.target={x:player.pos.x+fwd.x*6+hd.x*lead,y:player.pos.y-4,z:player.pos.z+fwd.z*6+hd.z*lead};
   cam.f=V.norm(V.sub(cam.target,cam.pos));
   cam.r=V.norm(V.cross(cam.f,{x:0,y:1,z:0}));
   cam.u=V.cross(cam.r,cam.f);
+}
+function updateCamera(dt){ updateCameraFollow(dt); updateCameraBasis(); }
+function snapCamera(){
+  const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
+  const pitch=cam.pitches[cam.pitchIdx];
+  cam.pos={x:player.pos.x-fwd.x*cam.dist,y:player.pos.y+8+(pitch-25)*0.52,z:player.pos.z-fwd.z*cam.dist};
+  updateCameraBasis();
 }
 function project(p){
   const dx=p.x-cam.pos.x,dy=p.y-cam.pos.y,dz=p.z-cam.pos.z;
@@ -268,23 +363,54 @@ function inVision(observer,target,facing,range=VISION_RANGE,half=VISION_HALF_ANG
   return dot>=Math.cos(half);
 }
 // 期望伤害 / 冷却 作为评分；火球按 AoE 命中数，冰剑按无制导距离折减命中率。
+// v2.7：雷法为持续型区域法术，期望伤害 = 单跳伤害 × 跳数 × 覆盖敌数。
 function evaluateAutoSpell(actorKey,casterPos,facing,targets,qi,cds){
+  const order=actorKey==='player'?SPELL_ORDER:ENEMY_SPELL_ORDER;
+  // v2.8：玩家用等级成长后的视野/射程，敌人始终用 1 层基准。
+  const vRange=actorKey==='player'?pVisionRange():VISION_RANGE;
+  const vHalf=actorKey==='player'?pVisionHalf():VISION_HALF_ANGLE;
   let best=null;
-  for(const key of SPELL_ORDER){
+  for(const key of order){
     const S=SPELLS[key];
+    const range=spellRange(key,actorKey);
     if(cds[key]>0||qi<S.cost)continue;
+    if(S.type==='zone'){
+      // 区域法术：枚举目标作为落点中心，取覆盖敌数最多的方案
+      let bz=null;
+      for(const t of targets){
+        if(!targetAlive(t))continue;
+        const tp=entityPos(t);
+        if(!inVision(casterPos,tp,facing,vRange,vHalf))continue;
+        const d=horizDist(casterPos,tp);
+        if(d>range)continue;
+        let hits=0;
+        for(const o of targets){
+          if(!targetAlive(o))continue;
+          if(horizDist(entityPos(o),tp)<=S.radius)hits++;
+        }
+        if(!hits)continue;
+        const ticks=Math.max(1,Math.round(S.duration/S.tick));
+        // v2.7 连锁：命中目标越多，单跳伤害越高
+        const chain=1+Math.max(0,hits-1)*(S.chain||0);
+        const expected=S.dmg*ticks*hits*chain;
+        const score=expected/Math.max(S.cd,AUTO_MIN_INTERVAL);
+        if(!bz||score>bz.score)bz={key,target:t,score,expected,hits};
+      }
+      if(bz&&(!best||bz.score>best.score))best=bz;
+      continue;
+    }
     for(const t of targets){
       if(!targetAlive(t))continue;
       const tp=entityPos(t);
-      if(!inVision(casterPos,tp,facing))continue;
+      if(!inVision(casterPos,tp,facing,vRange,vHalf))continue;
       const d=horizDist(casterPos,tp);
-      if(d>S.range)continue;
+      if(d>range)continue;
       let expected=S.dmg*S.count;
       if(S.radius>0){
         const hit=targets.filter(o=>targetAlive(o)&&horizDist(entityPos(o),tp)<=S.radius).length;
         expected=S.dmg*Math.max(1,hit);
       }
-      if(!S.homing)expected*=clamp(1-d/S.range*0.35,0.55,0.9);
+      if(!S.homing)expected*=clamp(1-d/range*0.35,0.55,0.9);
       const score=expected/Math.max(S.cd,AUTO_MIN_INTERVAL);
       if(!best||score>best.score)best={key,target:t,score,expected};
     }
@@ -316,7 +442,7 @@ function launchSpell(ownerKey,from,target,key){
       target:S.homing?target:null,
       dmg:S.dmg,radius:S.radius,color:S.color,
       homing:S.homing,guided:S.homing,powered:true,
-      powerRange:S.powerRange,traveled:0,life:4.0,
+      powerRange:powerRange(key,ownerKey),traveled:0,life:4.0,
       trail:[],phase:Math.random()*6.28,
       size:key==='fire'?1.8:(key==='ice'?0.75:1.25)
     });
@@ -335,13 +461,30 @@ function castSpellFor(ownerKey,key,target,caster){
   if(!S||!caster||!target)return false;
   if(caster.cds[key]>0||caster.qi<S.cost)return false;
   const from=ownerKey==='player'?caster.pos:{x:caster.x,y:caster.y+8,z:caster.z};
-  if(horizDist(from,entityPos(target))>S.range)return false;
+  if(horizDist(from,entityPos(target))>spellRange(key,ownerKey))return false;
   caster.qi-=S.cost; caster.cds[key]=S.cd;
-  launchSpell(ownerKey,from,target,key);
-  // v2.5：技能1 发射瞬间加一圈青色剑气，避免弹体刚出角色时被素材/拖尾掩盖。
-  if(key==='sword'){
-    fxRing(from,'#8ff0e0',0.8,3.2,0.26,3);
-    burst(from,6,'#8ff0e0',2.0);
+  if(S.type==='zone'){
+    // 持续型区域法术：在敌群重心开区，不产生投射物
+    const tp=entityPos(target);
+    let hits=0,cx=0,cz=0;
+    const pool=ownerKey==='player'?enemies:[player];
+    for(const o of pool){
+      if(o.hp<=0&&o!==player)continue;
+      const op=entityPos(o);
+      if(horizDist(op,tp)<=S.radius){hits++;cx+=op.x;cz+=op.z;}
+    }
+    const ax=hits>1?cx/hits:tp.x, az=hits>1?cz/hits:tp.z;
+    lightningZones.push({x:ax,z:az,r:S.radius,
+      life:S.duration,max:S.duration,tick:0,dmg:S.dmg,chain:S.chain||0});
+    fxRing({x:ax,y:tp.y,z:az},S.color,1,S.radius,0.35,4);
+    burst({x:ax,y:tp.y,z:az},10,S.color,3.0);
+  }else{
+    launchSpell(ownerKey,from,target,key);
+    // v2.7：技能1 发射瞬间加一圈金色剑气，避免弹体刚出角色时被素材/拖尾掩盖。
+    if(key==='sword'){
+      fxRing(from,'#ffd45e',0.8,3.2,0.26,3);
+      burst(from,6,'#ffb347',2.0);
+    }
   }
   if(ownerKey==='player'){
     const who=target.dummy?'落点':(target.type==='boss'?'麒麟':(target.type==='beast'?'妖兽':'敌修'));
@@ -349,18 +492,48 @@ function castSpellFor(ownerKey,key,target,caster){
   }
   return true;
 }
-/* v2.5 雷系功法：鼠标指定 20 丈内区域，持续 1s，每 0.2s 一跳范围伤害。手动施放，不进自动决策。 */
+/* v2.7 雷系功法：不再需要鼠标指定区域，自动挑选"命中敌数最多"的敌群中心释放。
+   规则：射程 20 丈内，视野内；若没有单个敌人但有多目标，选能覆盖最多敌人的落点。 */
+function pickLightningAim(){
+  const facing=facingVec(player.heading);
+  const R=LIGHTNING.radius;
+  const range=spellRange('lightning','player');
+  let best=null;
+  for(const e of enemies){
+    if(e.hp<=0)continue;
+    const tp=entityPos(e);
+    if(horizDist(player.pos,tp)>range)continue;
+    if(!inVision(player.pos,tp,facing,pVisionRange(),pVisionHalf()))continue;
+    // 该落点能覆盖到的敌人数（中心略微前移，贴近敌群重心）
+    let hits=0,cx=0,cz=0;
+    for(const o of enemies){
+      if(o.hp<=0)continue;
+      const op=entityPos(o);
+      if(horizDist(op,tp)<=R){hits++;cx+=op.x;cz+=op.z;}
+    }
+    if(!hits)continue;
+    const aim={x:hits>1?cx/hits:tp.x,z:hits>1?cz/hits:tp.z};
+    if(horizDist(player.pos,aim)>range)continue;
+    // 评分：命中敌人数优先，其次离玩家更近
+    const score=hits*100-horizDist(player.pos,aim);
+    if(!best||score>best.score)best={aim,hits,score};
+  }
+  return best?best.aim:null;
+}
 function castLightning(){
   if(!game.started||game.over)return false;
   if(player.cds.lightning>0||player.qi<LIGHTNING.cost)return false;
-  const aim=mouseToGround(); if(!aim)return false;
-  if(horizDist(player.pos,aim)>LIGHTNING.range)return false;
+  const aim=pickLightningAim();
+  if(!aim){
+    player.lastCast=`${LIGHTNING.name} → 射程内无敌`;
+    return false;
+  }
   player.qi-=LIGHTNING.cost; player.cds.lightning=LIGHTNING.cd;
   lightningZones.push({x:aim.x,z:aim.z,r:LIGHTNING.radius,
-    life:LIGHTNING.duration,max:LIGHTNING.duration,tick:0,dmg:LIGHTNING.dmg});
+    life:LIGHTNING.duration,max:LIGHTNING.duration,tick:0,dmg:LIGHTNING.dmg,chain:LIGHTNING.chain});
   fxRing(aim,LIGHTNING.color,1,LIGHTNING.radius,0.35,4);
   burst(aim,10,LIGHTNING.color,3.0);
-  player.lastCast=`${LIGHTNING.name} → 指定区域`;
+  player.lastCast=`${LIGHTNING.name} → 自动锁定敌群`;
   return true;
 }
 function pickManualTarget(){
@@ -370,7 +543,7 @@ function pickManualTarget(){
   const facing=facingVec(player.heading);
   for(const e of enemies){
     const tp=entityPos(e);
-    if(!inVision(player.pos,tp,facing))continue;
+    if(!inVision(player.pos,tp,facing,pVisionRange(),pVisionHalf()))continue;
     const d=horizDist(aim,tp);
     if(d<bd){bd=d;best=e;}
   }
@@ -442,7 +615,7 @@ function updateBolts(dt){
         kind:b.kind==='fire'?'ember':(b.kind==='ice'?'spark':'spark'),
         p:{...b.pos},v:{x:jx,y:(b.kind==='fire'?2:0.5)+Math.random()*2,z:jz},
         life:b.kind==='fire'?0.3:0.22,
-        color:b.powered?(b.kind==='fire'?'#ffb85c':(b.kind==='ice'?'#bfe8ff':'#8ff0e0')):'#9aa8a2',
+        color:b.powered?(b.kind==='fire'?'#ffb85c':(b.kind==='ice'?'#bfe8ff':'#ffd45e')):'#9aa8a2',
         size:b.kind==='fire'?2.2*b.size:1.6*b.size,
         grav:b.kind==='fire'?2:0,drag:b.kind==='fire'?1.4:0
       });
@@ -516,8 +689,14 @@ function updateLightning(dt){
         pushParticle({kind:'ring',p:{x:px,y:ground+0.8,z:pz},v:{x:0,y:0,z:0},
           life:0.22,color:LIGHTNING.color,r:0.4,r0:0.4,r1:3.2,width:2,grav:0});
       }
+      // v2.7 连锁：命中目标越多，每跳伤害越高（+60%/额外目标）
+      let hitCount=0;
       for(const e of enemies){
-        if(e.hp>0&&horizDist({x:e.x,z:e.z},z)<z.r)hurtEnemy(e,z.dmg);
+        if(e.hp>0&&horizDist({x:e.x,z:e.z},z)<z.r)hitCount++;
+      }
+      const dmg=z.dmg*(1+Math.max(0,hitCount-1)*(z.chain===undefined?LIGHTNING.chain:z.chain));
+      for(const e of enemies){
+        if(e.hp>0&&horizDist({x:e.x,z:e.z},z)<z.r)hurtEnemy(e,dmg);
       }
     }
     if(z.life<=0)lightningZones.splice(i,1);
@@ -529,14 +708,41 @@ function startDive(){
 }
 
 /* ---------- 敌人 ---------- */
-function spawnEnemy(boss){
+/* v2.7 敌人可及性：
+   原实现是"以主角为圆心随机方位刷怪"，主角一旦朝单一方向持续飞行，
+   新刷的敌人生在身后，永远追不上 → 越飞越空。
+   现在改为「前方偏置 + 掉队回收」：
+   - spawnEnemy(boss, opts.forward)：opts.forward 决定是否落在主角朝向的前方扇区；
+   - 敌人超出 MAX_CHASE 距离仍未被消灭时，被「回收」到主角前方重新出现；
+   - HUD 增加雷达与最近敌人方位提示，解决"找不到敌人"。 */
+const ENEMY_SPAWN_MIN=58, ENEMY_SPAWN_MAX=128;   // 刷怪距离区间（丈）
+const MAX_CHASE=300;                              // 超过此距离视为掉队，回收
+const FRONT_ARC=1.25;                             // 前方扇区半角（±71°）
+/* 方位角 → 世界偏移。约定与 facingVec 一致：角 a 的正前方 = (sin a, -cos a)，
+   这样 hd=0 时"正前方"就是 -z 方向，与相机/朝向完全同一套坐标系。 */
+function angleOffset(a,r){ return {x:Math.sin(a)*r,z:-Math.cos(a)*r}; }
+function spawnEnemy(boss,opts={}){
+  const forward=opts.forward!==false;
+  const hd=player.heading;
   let x,z,tries=0;
   do{
-    const a=Math.random()*Math.PI*2,r=55+Math.random()*110;
-    x=player.pos.x+Math.cos(a)*r; z=player.pos.z+Math.sin(a)*r;
+    let a;
+    if(forward){
+      // 70% 概率落在主角前方扇区，30% 全向（保留被包围的紧张感）
+      if(Math.random()<0.70) a=hd+(Math.random()*2-1)*FRONT_ARC;
+      else a=Math.random()*Math.PI*2;
+    }else a=Math.random()*Math.PI*2;
+    const r=ENEMY_SPAWN_MIN+Math.random()*(ENEMY_SPAWN_MAX-ENEMY_SPAWN_MIN);
+    const off=angleOffset(a,r);
+    x=player.pos.x+off.x; z=player.pos.z+off.z;
     tries++;
   }while(isSea(x,z)&&tries<24);
-  if(isSea(x,z)){x=player.pos.x+70;z=player.pos.z;}
+  if(isSea(x,z)){
+    // v2.7：海面回退点也必须落在主角前方，否则会破坏"前方偏置"的可及性保证
+    const a=player.heading+(Math.random()*2-1)*FRONT_ARC*0.5;
+    const off=angleOffset(a,ENEMY_SPAWN_MIN+20);
+    x=player.pos.x+off.x; z=player.pos.z+off.z;
+  }
   const maxQi=boss?120:60;
   enemies.push({
     x,z,y:terrainH(x,z),
@@ -549,6 +755,25 @@ function spawnEnemy(boss){
     autoLast:0,facing:{x:0,z:1}
   });
 }
+/* v2.7：掉队回收。敌人离主角过远时瞬移回主角前方，保证"永远打得着"。
+   回收时给一圈传送特效，避免突兀。 */
+function recycleStragglers(){
+  let n=0;
+  for(const e of enemies){
+    if(horizDist(e,player.pos)<MAX_CHASE)continue;
+    const a=player.heading+(Math.random()*2-1)*FRONT_ARC*0.8;
+    const r=ENEMY_SPAWN_MIN+Math.random()*50;
+    const off=angleOffset(a,r);
+    const nx=player.pos.x+off.x, nz=player.pos.z+off.z;
+    e.x=nx; e.z=nz; e.y=terrainH(nx,nz);
+    e.hp=e.maxHp; e.qi=e.maxQi;
+    for(const k in e.cds)e.cds[k]=0;
+    fxRing({x:e.x,y:e.y+4,z:e.z},'#9ad6ff',0.6,4.5,0.3,2);
+    burst({x:e.x,y:e.y+5,z:e.z},8,'#9ad6ff',2.2);
+    n++;
+  }
+  return n;
+}
 function hurtEnemy(e,dmg){
   if(e.hp<=0)return;
   e.hp-=dmg;e.hurt=0.18;
@@ -556,6 +781,9 @@ function hurtEnemy(e,dmg){
   burst({x:e.x,y:e.y+4,z:e.z},6,'#c8503c',1.3);
   if(e.hp<=0){
     game.score+=e.type==='boss'?100:10; game.kills++;
+    // v2.8：击杀经验；可能触发连升，升级特效在 addExp 内产生。
+    const lvUps=addExp(EXP_KILL[e.type]||EXP_KILL.beast);
+    if(lvUps>0)player.lastCast=`突破！练气 ${pLevel()} 层`;
     burst({x:e.x,y:e.y+5,z:e.z},e.type==='boss'?40:20,'#d9a441',2.4);
   }
 }
@@ -591,19 +819,19 @@ function fxCloudEnterBurst(){
   }
 }
 function fxSwordHit(pos){
-  fxRing(pos,'rgba(120,245,225,0.95)',1,8,0.36,3);
+  fxRing(pos,'rgba(255,205,90,0.95)',1,8,0.36,3);
   for(let i=0;i<10;i++){
     const a=Math.random()*Math.PI*2,s=8+Math.random()*10;
     pushParticle({kind:'shard',p:{...pos},
       v:{x:Math.cos(a)*s,y:(Math.random()-0.2)*8,z:Math.sin(a)*s},
-      life:0.32+Math.random()*0.32,color:'#cffff4',size:1.6+Math.random()*1.6,
+      life:0.32+Math.random()*0.32,color:'#ffe9a8',size:1.6+Math.random()*1.6,
       rot:a,vr:(Math.random()-0.5)*12,grav:13});
   }
   for(let i=0;i<6;i++){
     const a=Math.random()*Math.PI*2,s=4+Math.random()*7;
     pushParticle({kind:'spark',p:{...pos},
       v:{x:Math.cos(a)*s,y:Math.random()*7,z:Math.sin(a)*s},
-      life:0.22+Math.random()*0.22,color:'#8ff0e0',size:2.2,grav:4});
+      life:0.22+Math.random()*0.22,color:'#ffd45e',size:2.2,grav:4});
   }
 }
 function fxFireExplosion(pos,radius){
@@ -649,13 +877,14 @@ function fxGuidanceLost(pos){
 /* ---------- 重置 ---------- */
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
+  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
   enemies=[];bolts=[];beams=[];lightningZones=[];particles=[];dmgNums=[];
-  for(let i=0;i<10;i++)spawnEnemy(false);
-  initClouds(); cam.yaw=player.heading;cam.pitchIdx=1;
+  for(let i=0;i<10;i++)spawnEnemy(false,{forward:false});
+  initClouds(); cam.yaw=player.heading; cam.yawRate=0; cam.pitchIdx=1;
+  snapCamera();
 }
 
 /* v2.6：Forge 式切云。云簇自身的 cuts 存局部坐标，随云漂移；11 秒后愈合。 */
@@ -707,9 +936,10 @@ function update(dt){
   game.time+=dt; game.flash=Math.max(0,game.flash-dt*2.5);
   player.inv=Math.max(0,player.inv-dt);
   tickCds(player.cds,dt);
-  player.qi=clamp(player.qi+dt*(isSea(player.pos.x,player.pos.z)?11:7),0,player.maxQi);
+  const onSea=isSea(player.pos.x,player.pos.z);
+  player.qi=clamp(player.qi+dt*pRegenQi(onSea),0,player.maxQi);
   if(game.time-player.lastHit>3&&player.hp<player.maxHp){
-    player.hp=clamp(player.hp+dt*2.2,0,player.maxHp);
+    player.hp=clamp(player.hp+dt*pRegenHp(),0,player.maxHp);
   }
 
   /* v2.5：朝向与相机解耦。A/D 是转向，W/S 沿朝向前进/后撤；
@@ -729,7 +959,8 @@ function update(dt){
   player.pos.x+=player.dir.x*mf*spd*dt;
   player.pos.z+=player.dir.z*mf*spd*dt;
 
-  cam.yaw=lerpAngle(cam.yaw,player.heading,1-Math.exp(-6.5*dt));
+  /* v2.7：相机不再"硬跟随" player.heading，改由 updateCameraYaw 做
+     死区 + 比例增益 + 角速度上限的阻尼跟随（见相机段调研注释）。 */
   if(player.dive){
     const d=player.dive; d.t+=dt;
     if(d.phase==='down'){
@@ -769,7 +1000,8 @@ function update(dt){
     const dx=player.pos.x-e.x,dz=player.pos.z-e.z,dist=Math.hypot(dx,dz)||1;
     e.facing={x:dx/dist,z:dz/dist};
     if(e.type==='boss'){
-      if(dist<82){const s=7*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
+      // v2.7：麒麟追击提速到 13 丈/s，接敌距离放宽到 110 丈
+      if(dist<110){const s=13*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
       const from={x:e.x,y:e.y+8,z:e.z};
       if(dist<=BOSS_BEAM.range&&e.cds.beam<=0&&inVision(from,player.pos,e.facing)){
         beams.push({x:player.pos.x,z:player.pos.z,
@@ -781,14 +1013,16 @@ function update(dt){
         hurtPlayer(18);e.cds.melee=1.4;burst({x:e.x,y:e.y+8,z:e.z},14,'#ffd76a',2.4);
       }
     }else if(e.type==='beast'){
-      if(dist<52){const s=8*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
-      else{e.x+=Math.cos(e.wander)*4*dt;e.z+=Math.sin(e.wander)*4*dt;}
+      // v2.7：妖兽追击提速到 15 丈/s（主角 36 丈/s），能咬住但追不飞
+      if(dist<95){const s=15*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
+      else{e.x+=Math.cos(e.wander)*5*dt;e.z+=Math.sin(e.wander)*5*dt;}
       if(dist<13&&e.cds.melee<=0&&player.pos.y<e.y+22&&player.inv<=0){
         hurtPlayer(10);e.cds.melee=1.6;
       }
     }else{
-      if(dist>65){e.x+=dx/dist*4*dt;e.z+=dz/dist*4*dt;}
-      else if(dist<35){e.x-=dx/dist*3*dt;e.z-=dz/dist*3*dt;}
+      // v2.7：敌修追击提速到 11 丈/s，接敌距离 48 丈
+      if(dist>48){const s=11*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
+      else if(dist<32){const s=4*dt;e.x-=dx/dist*s;e.z-=dz/dist*s;}
       tryAutoAttack('enemy',e);
     }
     e.y=terrainH(e.x,e.z);
@@ -813,7 +1047,9 @@ function update(dt){
   }
   enemies=enemies.filter(e=>e.hp>0);
   while(enemies.length<10)spawnEnemy(false);
-  if(!game.bossSpawned&&game.kills>=5){spawnEnemy(true);game.bossSpawned=true;}
+  // v2.7：掉队敌人回收，保证主角单向飞行也不会把敌人甩没
+  recycleStragglers();
+  if(!game.bossSpawned&&game.kills>=5){spawnEnemy(true,{forward:true});game.bossSpawned=true;}
   updateCamera(dt);
 }
 function hurtPlayer(d,opts={}){
@@ -930,10 +1166,11 @@ function groundCircle(x,z,r,fill,stroke,h){
 function drawVision(){
   if(!player.showVision||!game.started||game.over)return;
   const pts=[{x:player.pos.x,y:terrainH(player.pos.x,player.pos.z)+0.8,z:player.pos.z}];
+  const vr=pVisionRange(),vh=pVisionHalf();
   for(let i=0;i<=28;i++){
-    const a=player.heading+(-VISION_HALF_ANGLE+i/28*2*VISION_HALF_ANGLE);
-    const x=player.pos.x+Math.sin(a)*VISION_RANGE;
-    const z=player.pos.z-Math.cos(a)*VISION_RANGE;
+    const a=player.heading+(-vh+i/28*2*vh);
+    const x=player.pos.x+Math.sin(a)*vr;
+    const z=player.pos.z-Math.cos(a)*vr;
     pts.push({x,y:terrainH(x,z)+0.8,z});
   }
   const pr=pts.map(project);
@@ -1171,16 +1408,31 @@ function drawBolt(b){
     ctx.strokeStyle=b.powered?'#7fc7ff':'#7f8b88';ctx.lineWidth=1;ctx.stroke();
     ctx.beginPath();ctx.moveTo(-L*0.2,-W*1.4);ctx.lineTo(-L*0.2,W*1.4);ctx.stroke();
   }else{
+    // v2.7：飞剑术 = 金色剑气。加长剑身 + 双层辉光 + 高光芯，远距离也一眼可见。
     ctx.translate(p.x,p.y);ctx.rotate(ang);
-    const L=Math.max(8,6*p.s),W=Math.max(2.2,1.35*p.s);
-    ctx.shadowBlur=b.powered?18:0;ctx.shadowColor='#8ff0e0';
+    const L=Math.max(11,8.5*p.s),W=Math.max(2.6,1.6*p.s);
+    // 外层辉光（放大淡金）
+    if(b.powered){
+      ctx.shadowBlur=26;ctx.shadowColor='#ffcf4d';
+      ctx.fillStyle='rgba(255,196,74,0.30)';
+      ctx.beginPath();ctx.moveTo(L*1.12,0);ctx.lineTo(0,-W*1.9);
+      ctx.lineTo(-L*0.5,-W*1.15);ctx.lineTo(-L*0.5,W*1.15);ctx.lineTo(0,W*1.9);ctx.closePath();ctx.fill();
+      ctx.shadowBlur=0;
+    }
+    ctx.shadowBlur=b.powered?22:0;ctx.shadowColor='#ffb347';
     ctx.beginPath();ctx.moveTo(L,0);ctx.lineTo(0,-W);ctx.lineTo(-L*0.45,-W*0.6);
     ctx.lineTo(-L*0.45,W*0.6);ctx.lineTo(0,W);ctx.closePath();
-    ctx.fillStyle=b.powered?'#d9fff8':'#9aa8a2';ctx.fill();
-    if(b.powered){ctx.shadowBlur=0;ctx.strokeStyle='#ffffff';ctx.lineWidth=Math.max(1,W*0.32);
-      ctx.beginPath();ctx.moveTo(-L*0.3,0);ctx.lineTo(L*0.72,0);ctx.stroke();}
+    ctx.fillStyle=b.powered?'#ffd75e':'#9aa8a2';ctx.fill();
+    if(b.powered){
+      // 高光剑脊
+      ctx.shadowBlur=0;ctx.strokeStyle='#fffbe8';ctx.lineWidth=Math.max(1,W*0.34);
+      ctx.beginPath();ctx.moveTo(-L*0.3,0);ctx.lineTo(L*0.74,0);ctx.stroke();
+      // 剑尖亮点
+      ctx.fillStyle='#fffdf0';ctx.beginPath();ctx.arc(L*0.82,0,Math.max(1,W*0.28),0,Math.PI*2);ctx.fill();
+    }
+    // 金色剑气尾焰
     ctx.beginPath();ctx.moveTo(-L*0.45,0);ctx.lineTo(-L*1.05,0);
-    ctx.strokeStyle=b.powered?'#8ff0e0':'#7f8b88';ctx.lineWidth=Math.max(1,W*0.7);ctx.stroke();
+    ctx.strokeStyle=b.powered?'#ffd45e':'#7f8b88';ctx.lineWidth=Math.max(1,W*0.7);ctx.stroke();
   }
   ctx.restore();
 }
@@ -1216,6 +1468,51 @@ function drawProjectiles(){
   }
   ctx.globalAlpha=1;
 }
+/* v2.7 敌情雷达：右下角圆形雷达，按主角朝向旋转（正上方 = 主角前方）。
+   解决"飞远了不知道敌人在哪"。刻度 60 丈/圈。 */
+function drawRadar(){
+  const cx=W-96, cy=H-96, R=78;
+  const range=180;                       // 雷达显示半径（丈）
+  ctx.save();
+  // 底盘
+  ctx.beginPath();ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.fillStyle='rgba(20,40,36,0.55)';ctx.fill();
+  ctx.strokeStyle='rgba(150,220,205,0.55)';ctx.lineWidth=1.5;ctx.stroke();
+  // 同心圈
+  ctx.strokeStyle='rgba(150,220,205,0.22)';ctx.lineWidth=1;
+  for(const r of [R/3,R*2/3]){ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();}
+  // 十字
+  ctx.beginPath();ctx.moveTo(cx-R,cy);ctx.lineTo(cx+R,cy);
+  ctx.moveTo(cx,cy-R);ctx.lineTo(cx,cy+R);ctx.stroke();
+  // 前向扇形提示
+  ctx.fillStyle='rgba(143,224,204,0.14)';
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R*0.9,-Math.PI/2-FRONT_ARC,-Math.PI/2+FRONT_ARC);ctx.closePath();ctx.fill();
+
+  // 把世界坐标转到"主角朝向为上"的雷达系
+  const hd=player.heading;
+  const cosH=Math.cos(hd), sinH=Math.sin(hd);
+  for(const e of enemies){
+    const dx=e.x-player.pos.x, dz=e.z-player.pos.z;
+    const d=Math.hypot(dx,dz);
+    if(d>range*1.6)continue;
+    // 主角朝向为 +x 轴的右手系：forward=(cos,sin) 映射到雷达上方
+    const fwd=dx*cosH+dz*sinH;      // 前向分量
+    const rgt=dx*(-sinH)+dz*cosH;    // 右向分量
+    let px=cx+(rgt/range)*R, py=cy-(fwd/range)*R;
+    const pr=Math.hypot(px-cx,py-cy);
+    if(pr>R-3){                      // 超出范围贴边
+      px=cx+(px-cx)/pr*(R-3); py=cy+(py-cy)/pr*(R-3);
+    }
+    const isBoss=e.type==='boss';
+    ctx.fillStyle=isBoss?'#ffd45e':(e.type==='archer'?'#e08a6a':'#d4574a');
+    ctx.beginPath();ctx.arc(px,py,isBoss?5:3,0,Math.PI*2);ctx.fill();
+    if(isBoss){ctx.strokeStyle='#ffe9a8';ctx.lineWidth=1.5;ctx.stroke();}
+  }
+  // 主角标记（始终朝上）
+  ctx.fillStyle='#8fe0cc';
+  ctx.beginPath();ctx.moveTo(cx,cy-7);ctx.lineTo(cx-5,cy+5);ctx.lineTo(cx+5,cy+5);ctx.closePath();ctx.fill();
+  ctx.restore();
+}
 function drawHUD(){
   const bar=(x,y,w,h,v,max,c1,c2,label)=>{
     ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(x,y,w,h);
@@ -1226,31 +1523,72 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.6',22,30);
-  ctx.font='13px "Microsoft YaHei"';
-  ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,116);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.8',22,30);
+  // v2.8：练气等级 + 经验条
+  const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
+  ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
+  const eg=ctx.createLinearGradient(22,expY,212,expY);eg.addColorStop(0,'#9b6fd0');eg.addColorStop(1,'#d9b8ff');
+  ctx.fillStyle=eg;ctx.fillRect(22,expY,190*clamp(maxed?1:player.exp/need,0,1),8);
+  ctx.fillStyle='#4a3a6a';ctx.font='12px "Microsoft YaHei"';
+  ctx.fillText(maxed?'练气 12 层 · 圆满':`练气 ${pLevel()} 层 · 经验 ${Math.floor(player.exp)}/${need}`,22,expY-5);
+  ctx.fillStyle='#25453f';ctx.font='13px "Microsoft YaHei"';
+  ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,140);
   const ground=terrainH(player.pos.x,player.pos.z);
-  ctx.fillText(`高度 ${Math.round(player.pos.y-Math.max(ground,0))} 丈`,22,136);
-  ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   穿云中':''}`,22,156);
+  ctx.fillText(`高度 ${Math.round(player.pos.y-Math.max(ground,0))} 丈`,22,158);
+  ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   穿云中':''}`,22,176);
   const canRegen=game.time-player.lastHit>3;
   if(!canRegen&&player.hp<player.maxHp){
-    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText('气血回复：受击中…',22,176);
+    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText('气血回复：受击中…',22,194);
   }else if(player.hp<player.maxHp){
-    ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText('气血回复中 +2.2/秒',22,176);
+    ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(`气血回复中 +${pRegenHp().toFixed(1)}/秒`,22,194);
   }
   ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
-  ctx.fillText(`自动攻击 ${player.auto?'开':'关'} (F)   视野 ${player.showVision?'显示':'隐藏'} (V)`,22,196);
+  ctx.fillText(`自动攻击 ${player.auto?'开':'关'} (F)   视野 ${player.showVision?'显示':'隐藏'} (V) ${Math.round(pVisionRange())}丈`,22,214);
   ctx.fillStyle='#25453f';
-  ctx.fillText(`1 飞剑 ${SPELLS.sword.range}丈 ${player.cds.sword>0?'CD'+player.cds.sword.toFixed(1):'就绪'}`,22,216);
-  ctx.fillText(`2 火球 ${SPELLS.fire.range}丈 ${player.cds.fire>0?'CD'+player.cds.fire.toFixed(1):'就绪'}`,22,234);
-  ctx.fillText(`3 冰剑 ${SPELLS.ice.range}丈 ${player.cds.ice>0?'CD'+player.cds.ice.toFixed(1):'就绪'}`,22,252);
-  ctx.fillText(`4 雷法 ${LIGHTNING.range}丈 ${player.cds.lightning>0?'CD'+player.cds.lightning.toFixed(1):'就绪'}`,22,270);
+  ctx.fillText(`1 飞剑 ${spellRange('sword','player').toFixed(0)}丈 ${player.cds.sword>0?'CD'+player.cds.sword.toFixed(1):'就绪'}`,22,234);
+  ctx.fillText(`2 火球 ${spellRange('fire','player').toFixed(0)}丈 ${player.cds.fire>0?'CD'+player.cds.fire.toFixed(1):'就绪'}`,22,252);
+  ctx.fillText(`3 冰剑 ${spellRange('ice','player').toFixed(0)}丈 ${player.cds.ice>0?'CD'+player.cds.ice.toFixed(1):'就绪'}`,22,270);
+  ctx.fillText(`4 雷法 ${spellRange('lightning','player').toFixed(0)}丈 自动锁定 ${player.cds.lightning>0?'CD'+player.cds.lightning.toFixed(1):'就绪'}`,22,288);
   ctx.fillStyle='rgba(45,95,88,0.85)';
-  ctx.fillText(`自动决策：${player.autoChoice}   上次：${player.lastCast}`,22,290);
+  ctx.fillText(`自动决策：${player.autoChoice}   上次：${player.lastCast}`,22,308);
+  // v2.7：相机档位 + 最近敌人方位提示
+  ctx.fillStyle='rgba(45,95,88,0.85)';
+  ctx.fillText(`相机 ${CAM_MODE_NAME[cam.mode]} (B)`,22,328);
+  const near=nearestEnemyInfo();
+  if(near){
+    ctx.fillStyle='rgba(180,90,60,0.95)';
+    ctx.fillText(`最近敌人 ${Math.round(near.d)}丈 · ${near.dirName}`,22,348);
+  }else{
+    ctx.fillStyle='rgba(90,120,110,0.8)';
+    ctx.fillText('附近无敌（雷达右下）',22,348);
+  }
   ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
   ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
   ctx.moveTo(mouse.x+4,mouse.y);ctx.lineTo(mouse.x+12,mouse.y);ctx.stroke();
+  drawRadar();
+}
+/* v2.7：最近敌人的相对方位（相对主角朝向），用于 HUD 文字提示。 */
+function nearestEnemyInfo(){
+  let best=null,bd=1e9;
+  for(const e of enemies){
+    const d=horizDist(e,player.pos);
+    if(d<bd){bd=d;best=e;}
+  }
+  if(!best)return null;
+  const dx=best.x-player.pos.x,dz=best.z-player.pos.z;
+  // 主角朝向单位向量 (sin h, -cos h)，右向 (cos h, sin h)
+  const f=dx*Math.sin(player.heading)-dz*Math.cos(player.heading);
+  const r=dx*Math.cos(player.heading)+dz*Math.sin(player.heading);
+  const ang=Math.atan2(r,f)*180/Math.PI;   // 0=正前，+90=正右
+  let dirName;
+  const a=Math.abs(ang);
+  if(a<22)dirName='正前方';
+  else if(a<68)dirName=(ang>0?'右前方':'左前方');
+  else if(a<112)dirName=(ang>0?'正右方':'正左方');
+  else if(a<158)dirName=(ang>0?'右后方':'左后方');
+  else dirName='正后方';
+  return {d:bd,dirName,ang};
 }
 function drawOverlay(){
   if(game.flash>0){ctx.fillStyle=`rgba(200,60,50,${game.flash*0.28})`;ctx.fillRect(0,0,W,H);}
@@ -1275,7 +1613,9 @@ function drawOverlay(){
   }
 }
 function render(){
-  drawSky(); updateCamera(0.0001);
+  // v2.7：渲染阶段只刷新相机基向量，不推进跟随（跟随统一在 update 里做，
+  // 避免 render 每帧再跑一次 yaw 阻尼导致双倍角速度）。
+  drawSky(); updateCameraBasis();
   drawTerrain(); drawVision(); drawAim(); drawBeams(); drawLightning();
   const sorted=[...enemies].sort((a,b)=>{
     const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
