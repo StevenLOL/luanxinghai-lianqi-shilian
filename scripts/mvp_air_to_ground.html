@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>御剑·空对地 — MVP v2.4 Forge 地形云层</title>
+<title>御剑·空对地 — MVP v2.5 背视角与飞行操控</title>
 <style>
   html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;}
   canvas{display:block;}
@@ -17,14 +17,14 @@
 <body>
 <canvas id="game"></canvas>
 <div id="loading">山海素材载入中…</div>
-<div id="tip">WASD 移动 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
+<div id="tip">W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2.2 — 自动斗法 / 视野 / 三技能 / Boss 冲击波
+ * 御剑·空对地 MVP v2.5 — 背视角素材 / 朝向与相机解耦 / W前进 S后撤 A/D转向
  * 定位：docs/009 P0 手感验证原型（非生产版）
- * 相对 v2.1：新增视野锥形、射程/灵力/冷却门禁、最大期望伤害自动决策；
- *            飞剑术 / 火球 / 冰剑术三技能；敌修与 Boss 同技能；Boss 冲击波光柱。
- * 素材：scripts/assets/*_cut.png（AI 生成 + 08_strip_png_bg.js 抠白底）
+ * 相对 v2.4：补充第三人称背视角剑仙素材；修复 A/D 与 S 的相机追尾抖动；
+ *            朝向 player.heading 独立于 cam.yaw，自动攻击视野跟随角色朝向。
+ * 素材：scripts/assets/*_cut.png（AI 生成 + 08/09 抠图脚本处理）
  * 若素材加载失败，自动回退到程序化切片体绘制（保证只拷 HTML 也能玩）
  * ============================================================ */
 
@@ -87,8 +87,8 @@ function isSea(x,z){ return terrainH(x,z)<0; }
 
 /* ---------- 角色素材 ---------- */
 const sprites={};
-const spriteFiles={player:'sword_immortal_cut.png',beast:'beast_cut.png',
-                   archer:'dark_cultivator_cut.png',boss:'qilin_boss_cut.png'};
+const spriteFiles={player:'sword_immortal_cut.png',playerBack:'sword_immortal_back_cut.png',
+                   beast:'beast_cut.png',archer:'dark_cultivator_cut.png',boss:'qilin_boss_cut.png'};
 let spritesReady=false;
 function loadSprites(){
   let left=Object.keys(spriteFiles).length;
@@ -122,24 +122,27 @@ const FORGE_HAZE=[188,224,246];
 const SPELLS = {
   sword:{key:'sword',name:'飞剑术',cd:1.0,cost:8,range:30,powerRange:30,
          dmg:26,speed:78,homing:true,count:1,radius:0,color:'#8ff0e0'},
-  fire :{key:'fire', name:'火球',  cd:0.5,cost:14,range:40,powerRange:40,
+  fire :{key:'fire', name:'火球',  cd:0.8,cost:14,range:40,powerRange:40,
          dmg:34,speed:58,homing:true,count:1,radius:12,color:'#ff9a4d'},
-  ice  :{key:'ice',  name:'冰剑术',cd:0.5,cost:12,range:20,powerRange:20,
+  ice  :{key:'ice',  name:'冰剑术',cd:0.7,cost:12,range:20,powerRange:20,
          dmg:14,speed:92,homing:false,count:3,radius:0,color:'#9fd8ff'}
 };
 const SPELL_ORDER=['sword','fire','ice'];
+// 雷系功法：玩家手动指定区域，持续落雷 1s。不进 SPELL_ORDER，不走自动决策。
+const LIGHTNING={key:'lightning',name:'雷系功法',cd:2.0,cost:18,range:20,
+                 radius:10,duration:1.0,tick:0.2,dmg:10,color:'#b99bff'};
 const BOSS_BEAM={range:50,radius:14,duration:1.0,tick:0.2,dmg:7,cd:4.0};
 
 /* ---------- 状态 ---------- */
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
 let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-            trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
-            cds:{sword:0,fire:0,ice:0},autoLast:0,auto:true,showVision:false,
+            heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
+            cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
 let cam={yaw:0,pitchIdx:1,dist:44,pitches:[25,45,70],
          pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
          f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
-let enemies=[],bolts=[],beams=[],particles=[],dmgNums=[],clouds=[];
+let enemies=[],bolts=[],beams=[],lightningZones=[],particles=[],dmgNums=[],clouds=[];
 
 /* ---------- 云：Forge puff cluster（低位成簇云带） ---------- */
 function initClouds(){
@@ -177,6 +180,7 @@ window.addEventListener('keydown',e=>{
   if(k==='1')castManual('sword');
   if(k==='2')castManual('fire');
   if(k==='3')castManual('ice');
+  if(k==='4'||k==='l')castLightning();
   if(k==='j')castManual('sword'); if(k==='k')castManual('fire');
   if(k==='z')cam.pitchIdx=0; if(k==='x')cam.pitchIdx=1; if(k==='c')cam.pitchIdx=2;
   if(k==='f'){player.auto=!player.auto;player.autoChoice=player.auto?'自动开启':'自动关闭';}
@@ -231,6 +235,9 @@ function mouseToGround(){
 
 /* ---------- 视野 / 射程 / 自动决策 ---------- */
 function facingVec(yaw){ return {x:Math.sin(yaw),y:0,z:-Math.cos(yaw)}; }
+/* 角度插值必须走最短弧，否则 yaw 从 +π 跳到 -π 时会让相机瞬间甩一整圈。 */
+function wrapAngle(a){ return Math.atan2(Math.sin(a),Math.cos(a)); }
+function lerpAngle(a,b,t){ return a+wrapAngle(b-a)*t; }
 function entityPos(t){
   if(!t)return {x:0,y:0,z:0};
   if(t.pos)return t.pos;
@@ -301,7 +308,7 @@ function launchSpell(ownerKey,from,target,key){
       homing:S.homing,guided:S.homing,powered:true,
       powerRange:S.powerRange,traveled:0,life:4.0,
       trail:[],phase:Math.random()*6.28,
-      size:key==='fire'?1.8:(key==='ice'?0.75:1.0)
+      size:key==='fire'?1.8:(key==='ice'?0.75:1.25)
     });
   };
   if(S.count>1){
@@ -321,17 +328,36 @@ function castSpellFor(ownerKey,key,target,caster){
   if(horizDist(from,entityPos(target))>S.range)return false;
   caster.qi-=S.cost; caster.cds[key]=S.cd;
   launchSpell(ownerKey,from,target,key);
+  // v2.5：技能1 发射瞬间加一圈青色剑气，避免弹体刚出角色时被素材/拖尾掩盖。
+  if(key==='sword'){
+    fxRing(from,'#8ff0e0',0.8,3.2,0.26,3);
+    burst(from,6,'#8ff0e0',2.0);
+  }
   if(ownerKey==='player'){
     const who=target.dummy?'落点':(target.type==='boss'?'麒麟':(target.type==='beast'?'妖兽':'敌修'));
     player.lastCast=`${S.name} → ${who}`;
   }
   return true;
 }
+/* v2.5 雷系功法：鼠标指定 20 丈内区域，持续 1s，每 0.2s 一跳范围伤害。手动施放，不进自动决策。 */
+function castLightning(){
+  if(!game.started||game.over)return false;
+  if(player.cds.lightning>0||player.qi<LIGHTNING.cost)return false;
+  const aim=mouseToGround(); if(!aim)return false;
+  if(horizDist(player.pos,aim)>LIGHTNING.range)return false;
+  player.qi-=LIGHTNING.cost; player.cds.lightning=LIGHTNING.cd;
+  lightningZones.push({x:aim.x,z:aim.z,r:LIGHTNING.radius,
+    life:LIGHTNING.duration,max:LIGHTNING.duration,tick:0,dmg:LIGHTNING.dmg});
+  fxRing(aim,LIGHTNING.color,1,LIGHTNING.radius,0.35,4);
+  burst(aim,10,LIGHTNING.color,3.0);
+  player.lastCast=`${LIGHTNING.name} → 指定区域`;
+  return true;
+}
 function pickManualTarget(){
   const aim=mouseToGround();
   if(!aim)return null;
   let best=null,bd=1e9;
-  const facing=facingVec(cam.yaw);
+  const facing=facingVec(player.heading);
   for(const e of enemies){
     const tp=entityPos(e);
     if(!inVision(player.pos,tp,facing))continue;
@@ -353,7 +379,7 @@ function tryAutoAttack(actorKey,enemy){
   if(isPlayer&&!player.auto)return null;
   if(game.time-actor.autoLast<AUTO_MIN_INTERVAL)return null;
   const from=isPlayer?player.pos:{x:actor.x,y:actor.y+8,z:actor.z};
-  const facing=isPlayer?facingVec(cam.yaw):actor.facing;
+  const facing=isPlayer?facingVec(player.heading):actor.facing;
   const targets=isPlayer?enemies:[player];
   const choice=evaluateAutoSpell(actorKey,from,facing,targets,actor.qi,actor.cds);
   if(!choice)return null;
@@ -463,6 +489,28 @@ function updateBeams(dt){
       burst({x:b.x,y:ground+3,z:b.z},8,'#ffcf6a',1.6);
     }
     if(b.life<=0)beams.splice(i,1);
+  }
+}
+function updateLightning(dt){
+  for(let i=lightningZones.length-1;i>=0;i--){
+    const z=lightningZones[i];
+    z.life-=dt; z.tick-=dt;
+    if(z.tick<=0){
+      z.tick=LIGHTNING.tick;
+      const ground=terrainH(z.x,z.z);
+      for(let k=0;k<3;k++){
+        const a=Math.random()*Math.PI*2, rr=Math.random()*z.r;
+        const px=z.x+Math.cos(a)*rr, pz=z.z+Math.sin(a)*rr;
+        pushParticle({kind:'spark',p:{x:px,y:ground+12+Math.random()*14,z:pz},
+          v:{x:0,y:-70,z:0},life:0.18,color:LIGHTNING.color,size:3.2,grav:0,drag:0});
+        pushParticle({kind:'ring',p:{x:px,y:ground+0.8,z:pz},v:{x:0,y:0,z:0},
+          life:0.22,color:LIGHTNING.color,r:0.4,r0:0.4,r1:3.2,width:2,grav:0});
+      }
+      for(const e of enemies){
+        if(e.hp>0&&horizDist({x:e.x,z:e.z},z)<z.r)hurtEnemy(e,z.dmg);
+      }
+    }
+    if(z.life<=0)lightningZones.splice(i,1);
   }
 }
 function startDive(){
@@ -581,12 +629,12 @@ function fxGuidanceLost(pos){
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
   player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,
-          trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
-          cds:{sword:0,fire:0,ice:0},autoLast:0,auto:true,showVision:false,
+          heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,
+          cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
-  enemies=[];bolts=[];beams=[];particles=[];dmgNums=[];
+  enemies=[];bolts=[];beams=[];lightningZones=[];particles=[];dmgNums=[];
   for(let i=0;i<10;i++)spawnEnemy(false);
-  initClouds(); cam.yaw=0;cam.pitchIdx=1;
+  initClouds(); cam.yaw=player.heading;cam.pitchIdx=1;
 }
 
 /* ---------- 更新 ---------- */
@@ -600,17 +648,24 @@ function update(dt){
     player.hp=clamp(player.hp+dt*2.2,0,player.maxHp);
   }
 
-  const fwd={x:Math.sin(cam.yaw),y:0,z:-Math.cos(cam.yaw)};
-  const right={x:Math.cos(cam.yaw),y:0,z:Math.sin(cam.yaw)};
-  let mf=0,ms=0;
-  if(keys['w']||keys['arrowup'])mf+=1; if(keys['s']||keys['arrowdown'])mf-=1;
-  if(keys['a']||keys['arrowleft'])ms-=1; if(keys['d']||keys['arrowright'])ms+=1;
-  const spd=36,vx=fwd.x*mf+right.x*ms,vz=fwd.z*mf+right.z*ms;
-  player.pos.x+=vx*spd*dt; player.pos.z+=vz*spd*dt;
-  if(Math.abs(vx)+Math.abs(vz)>0.01){
-    player.dir=V.norm({x:vx,y:0,z:vz});
-    cam.yaw=lerp(cam.yaw,Math.atan2(player.dir.x,-player.dir.z),1-Math.exp(-1.6*dt));
-  }
+  /* v2.5：朝向与相机解耦。A/D 是转向，W/S 沿朝向前进/后撤；
+     相机只平滑跟随 player.heading，避免“移动方向追相机、相机再追移动方向”的反馈环。 */
+  const TURN_RATE=2.0;              // rad/s，约 115°/s
+  const REVERSE_SCALE=0.58;         // 后撤比前进慢，表达逆气御剑
+  let turn=0;
+  if(keys['a']||keys['arrowleft'])turn-=1;
+  if(keys['d']||keys['arrowright'])turn+=1;
+  if(turn!==0)player.heading=wrapAngle(player.heading+turn*TURN_RATE*dt);
+  player.dir=facingVec(player.heading);
+
+  let mf=0;
+  if(keys['w']||keys['arrowup'])mf+=1;
+  if(keys['s']||keys['arrowdown'])mf-=1;
+  const spd=mf<0?36*REVERSE_SCALE:36;
+  player.pos.x+=player.dir.x*mf*spd*dt;
+  player.pos.z+=player.dir.z*mf*spd*dt;
+
+  cam.yaw=lerpAngle(cam.yaw,player.heading,1-Math.exp(-6.5*dt));
   if(player.dive){
     const d=player.dive; d.t+=dt;
     if(d.phase==='down'){
@@ -676,6 +731,7 @@ function update(dt){
 
   updateBolts(dt);
   updateBeams(dt);
+  updateLightning(dt);
 
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];
@@ -810,7 +866,7 @@ function drawVision(){
   if(!player.showVision||!game.started||game.over)return;
   const pts=[{x:player.pos.x,y:terrainH(player.pos.x,player.pos.z)+0.8,z:player.pos.z}];
   for(let i=0;i<=28;i++){
-    const a=cam.yaw+(-VISION_HALF_ANGLE+i/28*2*VISION_HALF_ANGLE);
+    const a=player.heading+(-VISION_HALF_ANGLE+i/28*2*VISION_HALF_ANGLE);
     const x=player.pos.x+Math.sin(a)*VISION_RANGE;
     const z=player.pos.z-Math.cos(a)*VISION_RANGE;
     pts.push({x,y:terrainH(x,z)+0.8,z});
@@ -874,7 +930,8 @@ function drawPlayer(){
     ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
   }
   const p=project(player.pos);if(!p)return;
-  if(!drawSprite('player',player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
+  const playerSprite=spriteOK('playerBack')?'playerBack':'player';
+  if(!drawSprite(playerSprite,player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
     const tailP=V.add(player.pos,V.mul(player.dir,-7));tailP.y-=1;
     const tail=project(tailP)||{x:p.x,y:p.y+10,s:p.s};
     const dx=p.x-tail.x,dy=p.y-tail.y,l=Math.hypot(dx,dy)||1;
@@ -944,6 +1001,31 @@ function drawBeams(){
     groundCircle(b.x,b.z,b.r,`rgba(255,190,70,${0.14*a})`,`rgba(255,150,60,${0.65*a})`,ground);
   }
 }
+function drawLightning(){
+  for(const z of lightningZones){
+    const a=clamp(z.life/z.max,0,1);
+    const ground=terrainH(z.x,z.z);
+    groundCircle(z.x,z.z,z.r,`rgba(150,110,255,${0.12*a})`,`rgba(185,155,255,${0.65*a})`,ground);
+    const pts=[];
+    for(let i=0;i<=10;i++){
+      const f=i/10;
+      const y=ground+42*(1-f)+1;
+      const j=Math.sin(game.time*28+i*2.7+z.x)*1.6*(1-f*0.4);
+      const k=Math.cos(game.time*23+i*1.9+z.z)*1.6*(1-f*0.4);
+      pts.push(project({x:z.x+j,y,z:z.z+k}));
+    }
+    if(pts.every(Boolean)){
+      ctx.save();ctx.globalAlpha=0.35+0.5*a;
+      ctx.shadowBlur=14;ctx.shadowColor=LIGHTNING.color;
+      ctx.strokeStyle=LIGHTNING.color;ctx.lineWidth=Math.max(2,4*pts[0].s/10);
+      ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+      for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);
+      ctx.stroke();
+      ctx.shadowBlur=0;ctx.strokeStyle='#f4efff';ctx.lineWidth=Math.max(1,1.6*pts[0].s/10);ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
 function drawBoltTrail(b){
   if(!b.trail||b.trail.length<2)return;
   ctx.save();ctx.lineCap='round';
@@ -983,13 +1065,15 @@ function drawBolt(b){
     ctx.beginPath();ctx.moveTo(-L*0.2,-W*1.4);ctx.lineTo(-L*0.2,W*1.4);ctx.stroke();
   }else{
     ctx.translate(p.x,p.y);ctx.rotate(ang);
-    const L=Math.max(6,5*p.s),W=Math.max(1.8,1.1*p.s);
-    ctx.shadowBlur=b.powered?14:0;ctx.shadowColor='#8ff0e0';
+    const L=Math.max(8,6*p.s),W=Math.max(2.2,1.35*p.s);
+    ctx.shadowBlur=b.powered?18:0;ctx.shadowColor='#8ff0e0';
     ctx.beginPath();ctx.moveTo(L,0);ctx.lineTo(0,-W);ctx.lineTo(-L*0.45,-W*0.6);
     ctx.lineTo(-L*0.45,W*0.6);ctx.lineTo(0,W);ctx.closePath();
     ctx.fillStyle=b.powered?'#d9fff8':'#9aa8a2';ctx.fill();
-    ctx.beginPath();ctx.moveTo(-L*0.45,0);ctx.lineTo(-L*0.95,0);
-    ctx.strokeStyle=b.powered?'#8ff0e0':'#7f8b88';ctx.lineWidth=Math.max(1,W*0.6);ctx.stroke();
+    if(b.powered){ctx.shadowBlur=0;ctx.strokeStyle='#ffffff';ctx.lineWidth=Math.max(1,W*0.32);
+      ctx.beginPath();ctx.moveTo(-L*0.3,0);ctx.lineTo(L*0.72,0);ctx.stroke();}
+    ctx.beginPath();ctx.moveTo(-L*0.45,0);ctx.lineTo(-L*1.05,0);
+    ctx.strokeStyle=b.powered?'#8ff0e0':'#7f8b88';ctx.lineWidth=Math.max(1,W*0.7);ctx.stroke();
   }
   ctx.restore();
 }
@@ -1035,7 +1119,7 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.4',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.5',22,30);
   ctx.font='13px "Microsoft YaHei"';
   ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,116);
   const ground=terrainH(player.pos.x,player.pos.z);
@@ -1053,8 +1137,9 @@ function drawHUD(){
   ctx.fillText(`1 飞剑 ${SPELLS.sword.range}丈 ${player.cds.sword>0?'CD'+player.cds.sword.toFixed(1):'就绪'}`,22,216);
   ctx.fillText(`2 火球 ${SPELLS.fire.range}丈 ${player.cds.fire>0?'CD'+player.cds.fire.toFixed(1):'就绪'}`,22,234);
   ctx.fillText(`3 冰剑 ${SPELLS.ice.range}丈 ${player.cds.ice>0?'CD'+player.cds.ice.toFixed(1):'就绪'}`,22,252);
+  ctx.fillText(`4 雷法 ${LIGHTNING.range}丈 ${player.cds.lightning>0?'CD'+player.cds.lightning.toFixed(1):'就绪'}`,22,270);
   ctx.fillStyle='rgba(45,95,88,0.85)';
-  ctx.fillText(`自动决策：${player.autoChoice}   上次：${player.lastCast}`,22,274);
+  ctx.fillText(`自动决策：${player.autoChoice}   上次：${player.lastCast}`,22,290);
   ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
   ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
@@ -1068,7 +1153,7 @@ function drawOverlay(){
     ctx.font='bold 42px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地',W/2,H/2-76);
     ctx.font='16px "Microsoft YaHei"';
     ctx.fillText('视野内自动选最优法术，山海之间御剑凌空',W/2,H/2-34);
-    ctx.fillText('1 飞剑术 · 2 火球 · 3 冰剑术 · F 自动攻击 · V 视野 · Z/X/C 视角',W/2,H/2+8);
+    ctx.fillText('1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角',W/2,H/2+8);
     ctx.fillText('飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',W/2,H/2+36);
     ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText('点击开始',W/2,H/2+92);
     ctx.textAlign='left';
@@ -1084,7 +1169,7 @@ function drawOverlay(){
 }
 function render(){
   drawSky(); updateCamera(0.0001);
-  drawTerrain(); drawVision(); drawAim(); drawBeams();
+  drawTerrain(); drawVision(); drawAim(); drawBeams(); drawLightning();
   const sorted=[...enemies].sort((a,b)=>{
     const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
     const db=V.dot(V.sub({x:b.x,y:b.y,z:b.z},cam.pos),cam.f);

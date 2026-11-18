@@ -15,6 +15,9 @@ others/*.png
 others/*.js
 others/*.html
 others/*.json
+# v2.5 背视角素材生成的临时大文件保留本地，但不纳入 git（文字溯源仍跟踪）
+others/asset_v25/**/*.png
+others/asset_v25/**/*.json
 
 # Python
 __pycache__/
