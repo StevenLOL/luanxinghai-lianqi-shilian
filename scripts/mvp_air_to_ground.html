@@ -46,9 +46,9 @@
 </div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2.14 — 初始高度 25 丈 / 剑舞·万象机动翻滚 / 手机端只留升降+翻滚
+ * 御剑·空对地 MVP v2.15 — 被击败来源可追溯 / 击杀回放 Kill Cam
  * 定位：docs/009 P0 手感验证原型（非生产版）
- * 相对 v2.13：初始离地高度 40→25；新增 J 键/手机按钮触发的 5s CD 无敌翻滚
+ * 相对 v2.14：记录致命一击的凶手与技能；死亡后以跟随法术的镜头回放从激发到命中主角的全过程。
  *             （横滚+桶滚+半筋斗+大迎角的修仙化复合机动）；手机移除 1234/自动/俯冲按钮。
  * 素材：scripts/assets/*_cut.png（AI 生成 + 08/09 抠图脚本处理）
  * 若素材加载失败，自动回退到程序化切片体绘制（保证只拷 HTML 也能玩）
@@ -263,6 +263,10 @@ const I18N={
     introStart:'点击开始', dead:'道消', deadRestart:'按 R 或点击 重来',
     tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · R 重来',
     rollReady:'剑舞翻滚 就绪 (J)', rollCd:'剑舞翻滚 CD {0}s', rollName:'剑舞·万象',
+    unknownFoe:'不明敌人', killedBy:'被 {0} 的「{1}」击败',
+    killCamTitle:'击杀回放', killCamFoe:'凶手：{0}', killCamCast:'法术激发',
+    killCamHit:'命中', killCamSkip:'点击 / 按任意键 跳过回放',
+    deadBy:'{0}', deadViewReplay:'按空格 重看击杀回放',
     loading:'山海素材载入中…'
   },
   en:{
@@ -288,13 +292,19 @@ const I18N={
     introStart:'Click to start', dead:'Fallen', deadRestart:'Press R or click to restart',
     tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · R Restart',
     rollReady:'Sword Dance READY (J)', rollCd:'Sword Dance CD {0}s', rollName:'Sword Dance',
+    unknownFoe:'Unknown foe', killedBy:'Slain by {0}\'s {1}',
+    killCamTitle:'KILL CAM', killCamFoe:'Killer: {0}', killCamCast:'CAST',
+    killCamHit:'IMPACT', killCamSkip:'Click / press any key to skip',
+    deadBy:'{0}', deadViewReplay:'Press Space to replay the kill',
     loading:'Loading mountain & sea assets…'
   }
 };
 function camModeName(){ return UI_LANG==='en'?
   ({soft:'Smooth',snap:'Responsive',lock:'Fixed'}[cam.mode]||cam.mode):CAM_MODE_NAME[cam.mode]; }
-const SPELL_NAME_I18N={zh:{sword:'飞剑',fire:'火球',ice:'冰剑',lightning:'雷法'},
-  en:{sword:'Sword',fire:'Fireball',ice:'Ice Sword',lightning:'Thunder'}};
+const SPELL_NAME_I18N={zh:{sword:'飞剑',fire:'火球',ice:'冰剑',lightning:'雷法',
+                           beam:'冲击光柱',melee:'近身撕咬',unknown:'未知攻击'},
+  en:{sword:'Sword',fire:'Fireball',ice:'Ice Sword',lightning:'Thunder',
+      beam:'Shock Beam',melee:'Melee',unknown:'Unknown'}};
 function L(key,...args){
   const tab=I18N[UI_LANG]||I18N.zh;
   let s=tab[key]!==undefined?tab[key]:(I18N.zh[key]!==undefined?I18N.zh[key]:key);
@@ -308,7 +318,9 @@ function spellName(key){ return (SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh)[k
   if(tip)tip.textContent=L('tip');
   if(loading)loading.textContent=L('loading');
 })();
-let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
+let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
+          // v2.15：击杀回放状态。killer=来源信息；replay=回放播放进度；none 表示无回放
+          killer:null,replay:null,lastReplay:null};
 let player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
@@ -383,6 +395,13 @@ function initClouds(){
 const keys={}, mouse={x:W/2,y:H/2};
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase(); keys[k]=true;
+  // v2.15：回放期间任意键跳过；死亡界面空格可重看最后一次击杀
+  if(game.replay){game.replay=null;e.preventDefault();return;}
+  if(game.over){
+    if(e.code==='Space'&&game.lastReplay){game.replay=Object.assign({},game.lastReplay,{t:0,hold:0,prog:0});e.preventDefault();}
+    if(k==='r')reset();
+    return;
+  }
   if(e.repeat)return;
   if(k==='1')castManual('sword');
   if(k==='2')castManual('fire');
@@ -405,6 +424,7 @@ window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 window.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;});
 window.addEventListener('mousedown',e=>{
   if(!game.started){game.started=true;return;}
+  if(game.replay){game.replay=null;return;}              // v2.15：跳过回放
   if(game.over){reset();return;}
   if(e.button===0)castManual('sword');
   if(e.button===2)castManual('fire');
@@ -453,6 +473,7 @@ if(IS_TOUCH){
   // 点画布开始 / 重来（桌面走 mousedown，手机走这里）
   canvas.addEventListener('touchstart',e=>{
     if(!game.started){game.started=true;e.preventDefault();}
+    else if(game.replay){game.replay=null;e.preventDefault();}   // v2.15：跳过回放
     else if(game.over){reset();e.preventDefault();}
   },{passive:false});
 }
@@ -628,7 +649,7 @@ function ballistic(from,to,horizSpeed){
   };
 }
 function boltDamage(b){ return b.dmg*(b.powered?1:FREE_FALL_DMG_SCALE); }
-function launchSpell(ownerKey,from,target,key){
+function launchSpell(ownerKey,from,target,key,caster){
   const S=SPELLS[key];
   const tp=entityPos(target);
   const speed=S.speed*(ownerKey==='player'?1:0.82);
@@ -639,6 +660,11 @@ function launchSpell(ownerKey,from,target,key){
                      :ballistic(from,aim,speed);
     bolts.push({
       kind:key,owner:ownerKey,pos:{...from},v,
+      // v2.15：弹丸身份 + 完整飞行轨迹（供致命一击回放；casterType 标注凶手种类）
+      ident:{owner:ownerKey,skill:key,from:{...from},
+             caster:caster?(caster.type||(ownerKey==='player'?'player':'enemy')):'enemy',
+             born:game.time},
+      path:[{...from}],
       target:S.homing?target:null,
       dmg:S.dmg,radius:S.radius,color:S.color,
       homing:S.homing,guided:S.homing,powered:true,
@@ -680,7 +706,7 @@ function castSpellFor(ownerKey,key,target,caster){
     fxRing({x:ax,y:tp.y,z:az},S.color,1,S.radius,0.35,4);
     burst({x:ax,y:tp.y,z:az},10,S.color,3.0);
   }else{
-    launchSpell(ownerKey,from,target,key);
+    launchSpell(ownerKey,from,target,key,caster);
     // v2.7：技能1 发射瞬间加一圈金色剑气，避免弹体刚出角色时被素材/拖尾掩盖。
     if(key==='sword'){
       fxRing(from,'#ffd45e',0.8,3.2,0.26,3);
@@ -865,6 +891,8 @@ function updateBolts(dt){
     b.traveled+=dist3(b.pos,prev);
     b.trail.push({...b.pos});
     if(b.trail.length>10*b.size)b.trail.shift();
+    // v2.15：致命回放用的完整轨迹（每帧记一个点，弹丸最多活 4s ≈ 240 点）
+    if(b.path)b.path.push({...b.pos});
     if(b.powered&&b.traveled>b.powerRange){
       b.powered=false;
       b.guided=false; b.target=null;
@@ -925,12 +953,12 @@ function updateBolts(dt){
       if(b.radius>0){
         if(b.pos.y<=ground||dist3(b.pos,player.pos)<8||b.life<=0){
           if(horizDist(b.pos,player.pos)<b.radius+3&&player.pos.y<ground+60){
-            hurtPlayer(boltDamage(b));
+            hurtPlayer(boltDamage(b),{from:boltSource(b)});
           }
           fxFireExplosion(b.pos,b.radius);done=true;
         }
       }else if(dist3(b.pos,player.pos)<6){
-        hurtPlayer(boltDamage(b));
+        hurtPlayer(boltDamage(b),{from:boltSource(b)});
         if(b.kind==='ice')fxIceHit(b.pos);else fxSwordHit(b.pos);
         done=true;
       }else if(b.pos.y<=ground||b.life<=0){
@@ -948,7 +976,8 @@ function updateBeams(dt){
       b.tick=BOSS_BEAM.tick;
       const ground=terrainH(b.x,b.z);
       if(horizDist(player.pos,{x:b.x,z:b.z})<b.r+3&&player.pos.y<ground+80){
-        hurtPlayer(b.dmg,{ignoreInv:true,noInv:true,noFlash:true});
+        hurtPlayer(b.dmg,{ignoreInv:true,noInv:true,noFlash:true,
+          from:{ident:{skill:'beam',caster:b.caster||'boss'}}});
       }
       burst({x:b.x,y:ground+3,z:b.z},8,'#ffcf6a',1.6);
     }
@@ -1228,7 +1257,8 @@ function fxGuidanceLost(pos){
 
 /* ---------- 重置 ---------- */
 function reset(){
-  game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
+  game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
+        killer:null,replay:null,lastReplay:null};
   player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
@@ -1280,6 +1310,104 @@ function updateCloudCutting(dt){
     }
   }else player.cloudVapourDue=0;
   return inside;
+}
+
+/* ============================================================
+ * v2.15 击杀回放（Kill Cam）：从法术激发到命中主角，镜头跟随法术
+ * ============================================================ */
+/* 回放相机：从弹丸侧后方跟随，注视点沿飞行方向前探；
+   命中瞬间（最后 25%）把注视点平滑拉向主角，形成「直取要害」的镜头。 */
+function updateKillCam(dt){
+  const rp=game.replay; if(!rp)return;
+  const path=rp.path, n=path.length;
+  // 飞行时长：按轨迹点数映射到约 0.9~1.6s，避免点太少一闪而过
+  const flyDur=clamp(path.length/60,0.9,1.6);
+  rp.t+=dt;
+  const prog=clamp(rp.t/flyDur,0,1);
+  rp.prog=prog;
+  const fi=prog*(n-1), i0=Math.floor(fi), i1=Math.min(n-1,i0+1), f=fi-i0;
+  const cur=V.add(V.mul(path[i0],1-f),V.mul(path[i1],f));
+  rp.ghost=cur;
+  // 飞行方向（当前点 - 前一点），退化时用末段方向
+  const pa=path[Math.max(0,i0-1)], pb=path[Math.min(n-1,i0+2)];
+  const dir=V.norm(V.sub(pb,pa));
+  // 相机置于弹丸侧后上方：后退 22、侧偏 7、抬高 9（跟随法术的第三人称镜头）
+  const worldUp={x:0,y:1,z:0};
+  let right=V.norm(V.cross(dir,worldUp));
+  if(!isFinite(right.x))right={x:1,y:0,z:0};
+  const back=V.mul(dir,-22);
+  const side=V.mul(right,7);
+  const desired=V.add(cur,V.add(back,side)); desired.y+=9;
+  const k=1-Math.exp(-6*dt);
+  cam.pos.x=lerp(cam.pos.x,desired.x,k);
+  cam.pos.y=lerp(cam.pos.y,desired.y,k);
+  cam.pos.z=lerp(cam.pos.z,desired.z,k);
+  // 注视点：飞行方向前探 10；最后阶段拉向主角
+  let look=V.add(cur,V.mul(dir,10));
+  if(prog>0.75){
+    const w=clamp((prog-0.75)/0.25,0,1);
+    look=V.add(V.mul(look,1-w),V.mul(player.pos,w));
+  }
+  cam.target=look;
+  cam.f=V.norm(V.sub(look,cam.pos));
+  cam.r=V.norm(V.cross(cam.f,worldUp));
+  if(!isFinite(cam.r.x))cam.r={x:1,y:0,z:0};
+  cam.u=V.cross(cam.r,cam.f);
+  rp.phase=prog>=1?'hold':'fly';
+  if(prog>=1){rp.hold=(rp.hold||0)+dt;
+    if(rp.hold>1.2){game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos};game.replay=null;}}
+}
+/* 回放中的幽灵弹丸渲染：沿轨迹绘制越肩视角下的法术本体 + 拖尾光带。 */
+function drawKillCamGhost(){
+  const rp=game.replay; if(!rp||!rp.ghost)return;
+  const path=rp.path, n=path.length;
+  const fi=rp.prog*(n-1), i0=Math.floor(fi);
+  // 拖尾：当前点之前 18 个轨迹点
+  const tail=[];
+  for(let i=Math.max(0,i0-18);i<=i0;i++)tail.push(path[i]);
+  tail.push(rp.ghost);
+  const pts=[];for(const q of tail){const p=project(q);if(p)pts.push(p);}
+  if(pts.length>1){
+    ctx.lineCap='round';
+    for(let i=1;i<pts.length;i++){
+      const a=pts[i-1],b=pts[i],t=i/pts.length;
+      ctx.strokeStyle=`rgba(255,214,94,${0.15+0.7*t})`;
+      ctx.lineWidth=Math.max(1.2,3.5*t*Math.min(2,b.s/10));
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    }
+  }
+  const gp=project(rp.ghost);
+  if(gp){
+    const r=Math.max(6,9*Math.min(2,gp.s/10));
+    const g=ctx.createRadialGradient(gp.x,gp.y,0,gp.x,gp.y,r*2.4);
+    g.addColorStop(0,'rgba(255,246,208,1)');g.addColorStop(0.4,'rgba(255,214,94,0.8)');
+    g.addColorStop(1,'rgba(255,214,94,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(gp.x,gp.y,r*2.4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff6d0';ctx.beginPath();ctx.arc(gp.x,gp.y,r*0.55,0,Math.PI*2);ctx.fill();
+  }
+}
+
+/* 回放 HUD：电影黑边 + 标题 + 凶手 + 阶段提示 + 进度条。 */
+function drawKillCamOverlay(){
+  const rp=game.replay; if(!rp)return;
+  const barH=Math.max(28,H*0.075);
+  ctx.fillStyle='rgba(10,16,20,0.82)';
+  ctx.fillRect(0,0,W,barH);ctx.fillRect(0,H-barH,W,barH);
+  ctx.fillStyle='#f4e9cf';ctx.textAlign='center';
+  const fs=Math.min(20,Math.floor(W/22));
+  ctx.font=`bold ${fs}px "Microsoft YaHei"`;
+  ctx.fillText(L('killCamTitle'),W/2,barH*0.62);
+  ctx.font=`${Math.max(12,fs*0.7)}px "Microsoft YaHei"`;
+  ctx.fillStyle='#e7b9a6';
+  ctx.fillText(L('killCamFoe',killerLabel(rp.ident)),W/2,H-barH*0.58);
+  // 阶段：激发 → 命中
+  const stage=rp.prog>0.82?L('killCamHit'):L('killCamCast');
+  ctx.fillStyle='#ffd45e';
+  ctx.fillText(stage,W/2,barH*0.62+fs*1.5);
+  // 进度条
+  ctx.fillStyle='rgba(255,255,255,0.18)';ctx.fillRect(W*0.3,barH*0.86,W*0.4,3);
+  ctx.fillStyle='#8fe0cc';ctx.fillRect(W*0.3,barH*0.86,W*0.4*clamp(rp.prog,0,1),3);
+  ctx.textAlign='left';
 }
 
 /* ---------- 更新 ---------- */
@@ -1373,20 +1501,20 @@ function update(dt){
       if(dist<110){const s=13*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
       const from={x:e.x,y:e.y+8,z:e.z};
       if(dist<=BOSS_BEAM.range&&e.cds.beam<=0&&inVision(from,player.pos,e.facing)){
-        beams.push({x:player.pos.x,z:player.pos.z,
+        beams.push({x:player.pos.x,z:player.pos.z,caster:e.type,
                     life:BOSS_BEAM.duration,tick:0,r:BOSS_BEAM.radius,dmg:BOSS_BEAM.dmg});
         e.cds.beam=BOSS_BEAM.cd;
         burst({x:player.pos.x,y:terrainH(player.pos.x,player.pos.z)+4,z:player.pos.z},20,'#ffcf6a',2.6);
       }else tryAutoAttack('enemy',e);
       if(dist<26&&e.cds.melee<=0&&player.pos.y<e.y+30){
-        hurtPlayer(18);e.cds.melee=1.4;burst({x:e.x,y:e.y+8,z:e.z},14,'#ffd76a',2.4);
+        hurtPlayer(18,{from:{ident:{skill:'melee',caster:e.type}}});e.cds.melee=1.4;burst({x:e.x,y:e.y+8,z:e.z},14,'#ffd76a',2.4);
       }
     }else if(e.type==='beast'){
       // v2.7：妖兽追击提速到 15 丈/s（主角 36 丈/s），能咬住但追不飞
       if(dist<95){const s=15*dt;e.x+=dx/dist*s;e.z+=dz/dist*s;}
       else{e.x+=Math.cos(e.wander)*5*dt;e.z+=Math.sin(e.wander)*5*dt;}
       if(dist<13&&e.cds.melee<=0&&player.pos.y<e.y+22&&player.inv<=0){
-        hurtPlayer(10);e.cds.melee=1.6;
+        hurtPlayer(10,{from:{ident:{skill:'melee',caster:e.type}}});e.cds.melee=1.6;
       }
     }else{
       // v2.7：敌修追击提速到 11 丈/s，接敌距离 48 丈
@@ -1426,6 +1554,12 @@ function update(dt){
   if(!game.bossSpawned&&game.kills>=5){spawnEnemy(true,{forward:true});game.bossSpawned=true;}
   updateCamera(dt);
 }
+/* v2.15：从弹丸提取致命回放数据。ident 保留凶手身份，path 为完整轨迹，
+   casterPos 用轨迹起点（发射点）近似。 */
+function boltSource(b){
+  return {ident:b.ident||{owner:b.owner,skill:b.kind,caster:b.owner==='player'?'player':'enemy'},
+          path:b.path, casterPos:b.path?b.path[0]:{...b.pos}};
+}
 function hurtPlayer(d,opts={}){
   if(!opts.ignoreInv&&player.inv>0)return;
   player.hp-=d;
@@ -1435,7 +1569,28 @@ function hurtPlayer(d,opts={}){
   if(!opts.noInv)player.inv=0.6;
   if(!opts.noFlash)game.flash=1;
   player.lastHit=game.time;
-  if(player.hp<=0){player.hp=0;game.over=true;}
+  /* v2.15：记录致命一击来源。opts.from 为 {ident,path,casterPos}（弹丸）或
+     {ident:{skill,caster}}（光柱/近战）。有完整 path 的才播放 kill cam。 */
+  if(player.hp<=0){
+    player.hp=0; game.over=true;
+    const src=opts.from||{ident:{skill:'unknown',caster:'enemy'}};
+    game.killer=src.ident;
+    if(src.path&&src.path.length>2){
+      const rp={t:0,path:src.path.slice(),ident:src.ident,
+                casterPos:src.casterPos||src.path[0],duration:1.0,phase:'fly'};
+      game.replay=rp;
+      game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos};
+    }
+  }
+}
+/* 凶手可读名：麒麟/妖兽/敌修 + 技能名。 */
+function killerLabel(ident){
+  if(!ident)return L('unknownFoe');
+  const who=ident.caster==='boss'?L('bossName')
+           :ident.caster==='beast'?L('beastName')
+           :ident.caster==='archer'?L('archerName'):L('unknownFoe');
+  const sk=spellName(ident.skill)||ident.skill;
+  return L('killedBy',who,sk);
 }
 
 /* ============================================================
@@ -1984,7 +2139,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.14',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.15',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -2099,18 +2254,32 @@ function drawOverlay(){
     ctx.fillStyle='rgba(20,36,33,0.7)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
     ctx.font=`bold ${Math.min(40,Math.floor(W/11))}px "Microsoft YaHei"`;
-    ctx.fillText(L('dead'),W/2,H/2-40);
-    ctx.font='18px "Microsoft YaHei"';ctx.fillText(L('kills',game.kills,game.score),W/2,H/2+6);
+    ctx.fillText(L('dead'),W/2,H/2-58);
+    // v2.15：明示凶手与技能
+    if(game.killer){
+      ctx.fillStyle='#ffb9a4';ctx.font='bold 17px "Microsoft YaHei"';
+      ctx.fillText(killerLabel(game.killer),W/2,H/2-18);
+    }
+    ctx.fillStyle='#f4efe2';ctx.font='18px "Microsoft YaHei"';
+    ctx.fillText(L('kills',game.kills,game.score),W/2,H/2+16);
     ctx.fillStyle='#8fe0cc';
-    ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点画面重来':'Tap to restart'):L('deadRestart'),W/2,H/2+52);
+    ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点画面重来':'Tap to restart'):L('deadRestart'),W/2,H/2+56);
+    if(game.lastReplay){   // 有回放可重看
+      ctx.fillStyle='#ffd45e';ctx.font='14px "Microsoft YaHei"';
+      ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点此重看击杀回放':'Tap: replay kill'):L('deadViewReplay'),W/2,H/2+86);
+    }
     ctx.textAlign='left';
   }
 }
 function render(){
-  // v2.7：渲染阶段只刷新相机基向量，不推进跟随（跟随统一在 update 里做，
-  // 避免 render 每帧再跑一次 yaw 阻尼导致双倍角速度）。
-  drawSky(); updateCameraBasis();
-  drawTerrain(); drawVision(); drawAim(); drawBeams(); drawLightning();
+  const inReplay=!!game.replay;
+  // v2.15：回放时隐藏固定提示条，避免与电影黑边里的凶手标注重叠
+  const tipEl=document.getElementById('tip');
+  if(tipEl)tipEl.style.display=inReplay?'none':(IS_TOUCH?'none':'');
+  // v2.15：回放期间相机基向量由 updateKillCam 设定，不能再被玩家跟随覆盖
+  drawSky(); if(!inReplay)updateCameraBasis();
+  drawTerrain();
+  if(!inReplay){drawVision(); drawAim(); drawBeams(); drawLightning();}
   // v2.13：复用排序数组，避免每帧分配
   const sorted=render._sorted||(render._sorted=[]);
   sorted.length=0; for(const e of enemies)sorted.push(e);
@@ -2122,7 +2291,8 @@ function render(){
   for(const e of sorted)drawEnemy(e);
   drawPlayer();
   drawClouds();
-  drawProjectiles(); drawHUD(); drawOverlay();
+  if(inReplay){drawKillCamGhost(); drawKillCamOverlay();}
+  else {drawProjectiles(); drawHUD(); drawOverlay();}
 }
 let last=performance.now();
 let perfAcc=0,perfFrames=0,perfCooldown=0;
@@ -2142,7 +2312,11 @@ function loop(now){
       perfAcc=0;perfFrames=0;
     }
   }
-  update(dt);render();requestAnimationFrame(loop);
+  /* v2.15：死亡且存在击杀回放时，战场冻结，只推进回放镜头；
+     回放播完后 game.replay 置空，进入正常死亡界面。 */
+  if(game.over&&game.replay){updateKillCam(dt);game.flash=Math.max(0,game.flash-dt*2.5);}
+  else update(dt);
+  render();requestAnimationFrame(loop);
 }
 reset();game.started=false;requestAnimationFrame(loop);
 </script>
