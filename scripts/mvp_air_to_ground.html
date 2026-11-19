@@ -160,11 +160,15 @@ const spriteFiles={player:'sword_immortal_cut.png',playerBack:'sword_immortal_ba
 let spritesReady=false;
 function loadSprites(){
   let left=Object.keys(spriteFiles).length;
+  /* 线上分享链接把授权参数（?sharecode=...）放在 query 上，
+     而相对路径的图片请求不会带上 query，会被网关判为"链接不完整"返回 403。
+     这里把当前页面的查询串原样接到素材请求上，file:// 与本地静态服务下 search 为空，不受影响。 */
+  const q=location.search||'';
   for(const k in spriteFiles){
     const im=new Image();
     im.onload=im.onerror=()=>{ if(--left<=0){spritesReady=true;
       const l=document.getElementById('loading'); if(l) l.style.display='none';} };
-    im.src='assets/'+spriteFiles[k];
+    im.src='assets/'+spriteFiles[k]+q;
     sprites[k]=im;
   }
 }

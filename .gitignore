@@ -29,3 +29,10 @@ desktop.ini
 
 # 工作区数据（重要，不删除；但非源码，不纳入 git 跟踪）
 .workbuddy/
+
+# v2.16 线上发布：发布产物副本与内部标记不入库（源码在 scripts/mvp_air_to_ground.html）
+deploy_forge/
+.wbapp_*.genie
+# Forge OAuth 客户端凭据（含 client_id，不入库）
+scripts/.forge_client.json
+scripts/.forge_token.json
