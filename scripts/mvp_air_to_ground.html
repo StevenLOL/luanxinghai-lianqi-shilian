@@ -1720,16 +1720,16 @@ function drawRadar(){
   ctx.fillStyle='rgba(143,224,204,0.14)';
   ctx.beginPath();ctx.moveTo(cx,cy);ctx.arc(cx,cy,R*0.9,-Math.PI/2-FRONT_ARC,-Math.PI/2+FRONT_ARC);ctx.closePath();ctx.fill();
 
-  // 把世界坐标转到"主角朝向为上"的雷达系
+  // v2.12：基向量统一到 facingVec 约定 forward=(sin hd, -cos hd)、right=(cos hd, sin hd)，
+  // 与 nearestEnemyInfo() 的方位分解完全一致：正上=正前、正右=正右。
   const hd=player.heading;
   const cosH=Math.cos(hd), sinH=Math.sin(hd);
   for(const e of enemies){
     const dx=e.x-player.pos.x, dz=e.z-player.pos.z;
     const d=Math.hypot(dx,dz);
     if(d>range*1.6)continue;
-    // 主角朝向为 +x 轴的右手系：forward=(cos,sin) 映射到雷达上方
-    const fwd=dx*cosH+dz*sinH;      // 前向分量
-    const rgt=dx*(-sinH)+dz*cosH;    // 右向分量
+    const fwd=dx*sinH-dz*cosH;      // 前向分量（与 facingVec 一致）
+    const rgt=dx*cosH+dz*sinH;      // 右向分量
     let px=cx+(rgt/range)*R, py=cy-(fwd/range)*R;
     const pr=Math.hypot(px-cx,py-cy);
     if(pr>R-3){                      // 超出范围贴边
@@ -1755,7 +1755,7 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f',L('hp'));
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText(L('title')+' v2.11',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText(L('title')+' v2.12',22,30);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
