@@ -24,12 +24,14 @@
        background:rgba(24,60,54,.28);border:2px solid rgba(190,240,220,.55);}
   #joyKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;
        border-radius:50%;background:rgba(160,230,210,.62);border:2px solid rgba(240,255,250,.8);}
-  #tb{right:14px;bottom:22px;display:grid;grid-template-columns:repeat(3,58px);gap:8px;}
-  #tb button{width:58px;height:52px;border-radius:12px;border:2px solid rgba(235,255,248,.7);
-       background:rgba(24,60,54,.55);color:#eefbf5;font:bold 15px/1.1 "Microsoft YaHei";
+  #tb{right:14px;bottom:22px;display:grid;grid-template-columns:repeat(2,72px);gap:10px;}
+  #tb button{width:72px;height:64px;border-radius:14px;border:2px solid rgba(235,255,248,.7);
+       background:rgba(24,60,54,.55);color:#eefbf5;font:bold 17px/1.1 "Microsoft YaHei";
        touch-action:none;}
-  #tb button.on{background:rgba(60,150,120,.78);}
-  #tb button small{display:block;font-size:10px;font-weight:normal;opacity:.85;}
+  #tb button#tbRoll{grid-column:1/3;width:154px;background:rgba(120,86,180,.62);
+       border-color:rgba(232,204,255,.8);}
+  #tb button.cool{opacity:.5;}
+  #tb button small{display:block;font-size:11px;font-weight:normal;opacity:.85;}
 </style>
 </head>
 <body>
@@ -38,21 +40,16 @@
 <div id="tip">W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
 <div id="joy" class="touch-ui"><div id="joyKnob"></div></div>
 <div id="tb" class="touch-ui">
-  <button data-act="sword">1<small>飞剑</small></button>
-  <button data-act="fire">2<small>火球</small></button>
-  <button data-act="ice">3<small>冰剑</small></button>
-  <button data-act="lightning">4<small>雷法</small></button>
   <button data-act="altUp">升<small>高度</small></button>
   <button data-act="altDown">降<small>高度</small></button>
-  <button data-act="auto" id="tbAuto">自动<small>斗法</small></button>
-  <button data-act="vision" id="tbVision">视野<small>开关</small></button>
-  <button data-act="dive">俯冲<small>空格</small></button>
+  <button data-act="roll" id="tbRoll">剑舞翻滚<small>5 秒冷却</small></button>
 </div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2.6 — 穿云切云 / 离屏云画布 / 11 秒愈合
+ * 御剑·空对地 MVP v2.14 — 初始高度 25 丈 / 剑舞·万象机动翻滚 / 手机端只留升降+翻滚
  * 定位：docs/009 P0 手感验证原型（非生产版）
- * 相对 v2.5：云层改画在离屏画布；玩家进入云层时按 Forge cutCloud 机制抠出通道并产生雾爆/拖尾，11 秒愈合。
+ * 相对 v2.13：初始离地高度 40→25；新增 J 键/手机按钮触发的 5s CD 无敌翻滚
+ *             （横滚+桶滚+半筋斗+大迎角的修仙化复合机动）；手机移除 1234/自动/俯冲按钮。
  * 素材：scripts/assets/*_cut.png（AI 生成 + 08/09 抠图脚本处理）
  * 若素材加载失败，自动回退到程序化切片体绘制（保证只拷 HTML 也能玩）
  * ============================================================ */
@@ -175,13 +172,17 @@ loadSprites();
 const GRAVITY = 24;
 const FREE_FALL_DMG_SCALE = 0.2;          // 失去动力后伤害变为 1/5
 const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
-/* v2.11：高度保持 = 维持一个「可变的离地高度设定值」，40 只是默认值。
+/* v2.14：初始高度 25 丈（Q/E 仍可改设定值）。
    Q/E 改变 targetAlt（持久、松手不回弹）；自动维持 = max(地形,0) + targetAlt，
    遇高山按地形自动升、遇低地自动降。 */
-const DEFAULT_ALT = 40;
+const DEFAULT_ALT = 25;
 const ALT_MIN = 8, ALT_MAX = 120;            // 可设定的离地高度范围
 const ALT_HOLD_K = 5.0;                      // 高度跟随收敛速率
 const ALT_KEY_SPEED = 26;                    // Q/E 改变设定值的速度（丈/秒）
+/* v2.14 御剑机动翻滚「剑舞·万象」：借鉴战机四类滚转机动的修仙化表达。
+   横滚(绕纵轴360°) → 桶滚(螺旋突进) → 半筋斗抬升(殷麦曼高度收益) → 大迎角收势。
+   战斗价值：翻滚期间短暂无敌规避 + 剑气横扫路径敌人 + 小幅爬升抢高度。 */
+const ROLL_CD=5, ROLL_DUR=1.05, ROLL_DMG=30, ROLL_DASH=72;
 const VISION_RANGE = 120;                 // 视野半径（丈）· 练气 1 层基准
 const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60° · 练气 1 层基准
 /* v2.8 等级系统：练气 1→12 层。经验曲线 expToNext(lv)=round(14*lv^1.45+8)，
@@ -257,9 +258,11 @@ const I18N={
     dirLeft:'正左方', dirRightBack:'右后方', dirLeftBack:'左后方', dirBack:'正后方',
     introSub:'视野内自动选最优法术，山海之间御剑凌空',
     introKeys:'1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角',
+    introRoll:'J 剑舞·万象翻滚（无敌规避 + 剑气横扫，冷却 5 秒）',
     introSea:'飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',
     introStart:'点击开始', dead:'道消', deadRestart:'按 R 或点击 重来',
-    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来',
+    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · R 重来',
+    rollReady:'剑舞翻滚 就绪 (J)', rollCd:'剑舞翻滚 CD {0}s', rollName:'剑舞·万象',
     loading:'山海素材载入中…'
   },
   en:{
@@ -280,9 +283,11 @@ const I18N={
     dirLeft:'left', dirRightBack:'rear-right', dirLeftBack:'rear-left', dirBack:'behind',
     introSub:'Auto-selects the best spell in sight; fly free between sea and mountain',
     introKeys:'1 Sword · 2 Fireball · 3 Ice Sword · 4 Thunder · F Auto · V Vision · Z/X/C Camera',
+    introRoll:'J Sword Dance roll (invulnerable dodge + sword-energy sweep, 5s cooldown)',
     introSea:'Fly over the ocean to dodge beasts and recover Qi fast; kill 5 to summon the Qilin',
     introStart:'Click to start', dead:'Fallen', deadRestart:'Press R or click to restart',
-    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · R Restart',
+    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · R Restart',
+    rollReady:'Sword Dance READY (J)', rollCd:'Sword Dance CD {0}s', rollName:'Sword Dance',
     loading:'Loading mountain & sea assets…'
   }
 };
@@ -304,9 +309,9 @@ function spellName(key){ return (SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh)[k
   if(loading)loading.textContent=L('loading');
 })();
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
-            heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
-            cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
+let player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
+            heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
+            cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
 let cam={yaw:0,yawRate:0,pitchIdx:1,dist:44,pitches:[25,45,70],mode:'soft',bank:0,
          pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
@@ -383,7 +388,8 @@ window.addEventListener('keydown',e=>{
   if(k==='2')castManual('fire');
   if(k==='3')castManual('ice');
   if(k==='4'||k==='l')castLightning();          // v2.7：雷法自动选敌自动释放
-  if(k==='j')castManual('sword'); if(k==='k')castManual('fire');
+  if(k==='j')startRoll();                     // v2.14：J = 剑舞·万象翻滚（CD 5s）
+  if(k==='k')castManual('fire');              // 火球备用键
   if(k==='z')cam.pitchIdx=0; if(k==='x')cam.pitchIdx=1; if(k==='c')cam.pitchIdx=2;
   if(k==='b'){                                  // v2.7：相机手感档位
     cam.mode=cam.mode==='soft'?'snap':'soft';
@@ -440,14 +446,8 @@ if(IS_TOUCH){
       e.preventDefault();
       if(!game.started){game.started=true;return;}
       if(game.over){reset();return;}
-      if(act==='sword')castManual('sword');
-      else if(act==='fire')castManual('fire');
-      else if(act==='ice')castManual('ice');
-      else if(act==='lightning')castLightning();
-      else if(act==='auto'){player.auto=!player.auto;
-        player.autoChoice=player.auto?L('autoOnBrief'):L('autoOffBrief');b.classList.toggle('on',player.auto);}
-      else if(act==='vision'){player.showVision=!player.showVision;b.classList.toggle('on',player.showVision);}
-      else if(act==='dive')startDive();
+      // v2.14：手机只保留升/降/翻滚（技能全自动，无需 1/2/3/4 与自动开关）
+      if(act==='roll')startRoll();
     },{passive:false});
   }
   // 点画布开始 / 重来（桌面走 mousedown，手机走这里）
@@ -987,6 +987,63 @@ function startDive(){
   if(!game.started||game.over||player.dive||player.qi<12)return;
   player.qi-=12; player.dive={t:0,startY:player.pos.y,phase:'down',hit:new Set()};
 }
+/* v2.14「剑舞·万象」御剑机动翻滚：四段战机机动的修仙化表达。
+   ① 起手大迎角：剑尖上扬、气机蓄势（视觉抬升）
+   ② 横滚 360°：绕飞剑纵轴回转，剑光护体 → 翻滚期无敌
+   ③ 桶滚螺旋：沿弧线突进 + 侧摆，剑气横扫路径敌人
+   ④ 半筋斗收势：抬升抢高度，落地前回归设定高度
+   冷却 5s；不耗灵力（与俯冲区分），靠身法而非法术。 */
+function startRoll(){
+  if(!game.started||game.over||player.roll||player.dive||player.cds.roll>0)return false;
+  player.cds.roll=ROLL_CD;
+  const f=facingVec(player.heading);
+  // 左右交替，连续翻滚不会总往同一侧偏，观感更像剑舞
+  const dir=(player.rollDir||1); player.rollDir=-dir;
+  player.roll={t:0,sx:player.pos.x,sy:player.pos.y,sz:player.pos.z,
+               fx:f.x,fz:f.z,dir,hit:new Set()};
+  fxRing(player.pos,'#8fe0cc',1.2,7,0.5,6);
+  burst(player.pos,18,'#ffe9a8',3.0);
+  return true;
+}
+/* 翻滚推进：返回 true 表示本帧玩家位置由翻滚接管（跳过常规移动/高度保持）。 */
+function updateRoll(dt){
+  const r=player.roll; if(!r)return false;
+  r.t+=dt;
+  const p=clamp(r.t/ROLL_DUR,0,1);
+  // 缓入缓出的 720° 滚转：起势慢 → 中段快 → 收势稳
+  const ease=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+  r.ang=ease*Math.PI*4*r.dir;
+  // 轨迹：前段直冲（横滚），中段侧摆（桶滚），全程抬升（半筋斗）
+  const dash=ROLL_DASH*(1-Math.pow(1-p,2));
+  const spiral=Math.sin(p*Math.PI*2)*9*r.dir;
+  const lift=Math.sin(p*Math.PI)*13;
+  // facingVec 的右向量 = (-fz, fx)
+  player.pos.x=r.sx+r.fx*dash-r.fz*spiral;
+  player.pos.z=r.sz+r.fz*dash+r.fx*spiral;
+  player.pos.y=r.sy+lift;
+  // 剑光护体：全程短无敌（每帧续 80ms，覆盖敌方投射物命中判定）
+  player.inv=Math.max(player.inv,0.08);
+  // 剑气横扫：路径附近敌人受伤，每个敌人本次翻滚只中一次
+  for(const e of enemies){
+    if(r.hit.has(e))continue;
+    if(horizDist(e,player.pos)<(e.r+7)&&Math.abs(player.pos.y-(e.y+6))<20){
+      r.hit.add(e); hurtEnemy(e,ROLL_DMG);
+      burst({x:e.x,y:e.y+7,z:e.z},14,'#ffe9a8',2.6);
+    }
+  }
+  // 剑气拖尾粒子
+  if(Math.random()<dt*45){
+    pushParticle({kind:'ember',p:{...player.pos},
+      v:{x:(Math.random()-0.5)*8,y:(Math.random()-0.5)*6,z:(Math.random()-0.5)*8},
+      life:0.35,color:'#ffe9a8',size:2.2,grav:0,drag:2});
+  }
+  if(r.t>=ROLL_DUR){
+    player.roll=null;
+    // 半筋斗高度收益：设定高度小幅提升（抢高度优势），受 ALT_MAX 约束
+    player.targetAlt=clamp(player.targetAlt+4,ALT_MIN,ALT_MAX);
+  }
+  return true;
+}
 
 /* ---------- 敌人 ---------- */
 /* v2.7 敌人可及性：
@@ -1172,7 +1229,7 @@ function fxGuidanceLost(pos){
 /* ---------- 重置 ---------- */
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
+  player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
@@ -1237,6 +1294,13 @@ function update(dt){
     player.hp=clamp(player.hp+dt*pRegenHp(),0,player.maxHp);
   }
 
+  /* v2.14：翻滚机动接管本帧的移动与高度（与普通飞行/俯冲互斥），
+     但灵力回复、自动斗法、敌人行动照常。 */
+  const rolling=updateRoll(dt);
+
+  // v2.14：地形高度提到块外，翻滚/常规分支都要用（曾因留在块内导致 ReferenceError）
+  const groundP=terrainH(player.pos.x,player.pos.z);
+  if(!rolling){
   /* v2.5：朝向与相机解耦。A/D 是转向，W/S 沿朝向前进/后撤；
      相机只平滑跟随 player.heading，避免“移动方向追相机、相机再追移动方向”的反馈环。 */
   const TURN_RATE=2.0;              // rad/s，约 115°/s
@@ -1258,7 +1322,6 @@ function update(dt){
      死区 + 比例增益 + 角速度上限的阻尼跟随（见相机段调研注释）。 */
   /* v2.11：高度保持 = 维持 targetAlt 这个离地高度设定值。
      Q/E 改设定值（持久，松手不回弹）；遇地形起伏自动升/降维持该离地距离。 */
-  const groundP=terrainH(player.pos.x,player.pos.z);
   let altY;
   if(player.dive){
     const d=player.dive; d.t+=dt;
@@ -1286,6 +1349,7 @@ function update(dt){
     // 维持设定高度 = 地形高度 + targetAlt；lerp 收敛，遇高山自动升、遇低地自动降。
     player.pos.y=lerp(player.pos.y,altY,1-Math.exp(-ALT_HOLD_K*dt));
   }
+  } // end if(!rolling)
   player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,150);
   player.trail.push({...player.pos});
   if(player.trail.length>22)player.trail.shift();
@@ -1581,7 +1645,35 @@ function drawPlayer(){
   }
   const p=project(player.pos);if(!p)return;
   const playerSprite=spriteOK('playerBack')?'playerBack':'player';
-  if(!drawSprite(playerSprite,player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
+  /* v2.14 翻滚渲染：横滚时角色绕屏幕中心旋转（720° 缓入缓出），
+     叠加剑气护体旋环与轨迹残影，表现「剑舞·万象」。 */
+  if(player.roll&&!player.dive){
+    const r=player.roll;
+    const ang=r.ang||0;
+    const h=8.5*p.s, w=h;
+    ctx.save();
+    ctx.translate(p.x,p.y-h*0.55);
+    ctx.rotate(ang);
+    if(spriteOK(playerSprite)){
+      ctx.drawImage(sprites[playerSprite],-w/2,-h/2,w,h);
+    }else{
+      // 无素材时的程序化飞剑：绕中心旋转的剑形
+      ctx.fillStyle='#e2fbf4';
+      ctx.beginPath();ctx.moveTo(0,-h*0.55);ctx.lineTo(w*0.13,-h*0.05);
+      ctx.lineTo(0,h*0.55);ctx.lineTo(-w*0.13,-h*0.05);ctx.closePath();ctx.fill();
+    }
+    ctx.restore();
+    // 剑气护体：两道随翻滚反向旋转的青金色光环
+    ctx.save();ctx.translate(p.x,p.y-h*0.5);
+    for(let i=0;i<2;i++){
+      ctx.save();ctx.rotate(ang*(i?0.6:-1));
+      ctx.strokeStyle=i?'rgba(255,233,168,0.75)':'rgba(143,224,204,0.7)';
+      ctx.lineWidth=Math.max(1.2,2.4*Math.min(2,p.s/12));
+      ctx.beginPath();ctx.ellipse(0,0,w*0.78,h*0.5,0,0,Math.PI*2);ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }else if(!drawSprite(playerSprite,player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
     const tailP=V.add(player.pos,V.mul(player.dir,-7));tailP.y-=1;
     const tail=project(tailP)||{x:p.x,y:p.y+10,s:p.s};
     const dx=p.x-tail.x,dy=p.y-tail.y,l=Math.hypot(dx,dy)||1;
@@ -1892,7 +1984,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.13',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.14',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -1911,36 +2003,53 @@ function drawHUD(){
   }else if(player.hp<player.maxHp){
     ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(L('hpRegen',pRegenHp().toFixed(1)),22,194);
   }
-  ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
-  ctx.fillText(`${L(player.auto?'autoOn':'autoOff')}   ${L(player.showVision?'visionOn':'visionOff')} ${Math.round(pVisionRange())}${UI_LANG==='zh'?'丈':' zhang'}`,22,214);
-  ctx.fillStyle='#25453f';
-  const spellLine=(idx,name,key)=>{
-    const r=spellRange(key,'player').toFixed(0), cd=player.cds[key];
-    const status=cd>0?'CD'+cd.toFixed(1):L('ready');
-    const extra=key==='lightning'?' '+L('autoLock'):'';
-    ctx.fillText(`${idx} ${name} ${r}${UI_LANG==='zh'?'丈':' zhang'}${extra} ${status}`,22,idx==='1'?234:(idx==='2'?252:(idx==='3'?270:288)));
-  };
-  const SN=SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh;
-  spellLine('1',SN.sword,'sword');spellLine('2',SN.fire,'fire');
-  spellLine('3',SN.ice,'ice');spellLine('4',SN.lightning,'lightning');
-  ctx.fillStyle='rgba(45,95,88,0.85)';
-  ctx.fillText(L('autoDecision',player.autoChoice,player.lastCast),22,308);
-  // v2.7：相机档位 + 最近敌人方位提示
-  ctx.fillStyle='rgba(45,95,88,0.85)';
-  ctx.fillText(L('camera',camModeName()),22,328);
+  /* v2.14：手机端只显示玩家还能操作的信息。
+     技能行(1/2/3/4)、自动攻击/视野切换、相机档位在手机已无对应控件，
+     继续显示只会误导；桌面保持原样。 */
+  if(!IS_TOUCH){
+    ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
+    ctx.fillText(`${L(player.auto?'autoOn':'autoOff')}   ${L(player.showVision?'visionOn':'visionOff')} ${Math.round(pVisionRange())}${UI_LANG==='zh'?'丈':' zhang'}`,22,214);
+    ctx.fillStyle='#25453f';
+    const spellLine=(idx,name,key)=>{
+      const r=spellRange(key,'player').toFixed(0), cd=player.cds[key];
+      const status=cd>0?'CD'+cd.toFixed(1):L('ready');
+      const extra=key==='lightning'?' '+L('autoLock'):'';
+      ctx.fillText(`${idx} ${name} ${r}${UI_LANG==='zh'?'丈':' zhang'}${extra} ${status}`,22,idx==='1'?234:(idx==='2'?252:(idx==='3'?270:288)));
+    };
+    const SN=SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh;
+    spellLine('1',SN.sword,'sword');spellLine('2',SN.fire,'fire');
+    spellLine('3',SN.ice,'ice');spellLine('4',SN.lightning,'lightning');
+    ctx.fillStyle='rgba(45,95,88,0.85)';
+    ctx.fillText(L('autoDecision',player.autoChoice,player.lastCast),22,308);
+  }
+  // v2.14：剑舞翻滚冷却状态；手机端因隐藏上述行而上移到 y=214
+  const rollY=IS_TOUCH?214:326;
+  ctx.fillStyle=player.cds.roll>0?'rgba(150,86,120,0.9)':'rgba(120,80,175,0.95)';
+  ctx.fillText(player.cds.roll>0?L('rollCd',player.cds.roll.toFixed(1)):L('rollReady'),22,rollY);
+  // v2.7：相机档位 + 最近敌人方位提示（手机无相机切换键，隐藏档位）
+  const camY=IS_TOUCH?232:344, nearY=IS_TOUCH?250:362;
+  if(!IS_TOUCH){
+    ctx.fillStyle='rgba(45,95,88,0.85)';
+    ctx.fillText(L('camera',camModeName()),22,camY);
+  }
   const near=nearestEnemyInfo();
   if(near){
     ctx.fillStyle='rgba(180,90,60,0.95)';
-    ctx.fillText(L('nearest',Math.round(near.d),near.dirName),22,348);
+    ctx.fillText(L('nearest',Math.round(near.d),near.dirName),22,nearY);
   }else{
     ctx.fillStyle='rgba(90,120,110,0.8)';
-    ctx.fillText(L('noEnemy'),22,348);
+    ctx.fillText(L('noEnemy'),22,nearY);
   }
-  ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
-  ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
-  ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
-  ctx.moveTo(mouse.x+4,mouse.y);ctx.lineTo(mouse.x+12,mouse.y);ctx.stroke();
+  if(!IS_TOUCH){   // 鼠标准星只在桌面有意义
+    ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
+    ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
+    ctx.moveTo(mouse.x+4,mouse.y);ctx.lineTo(mouse.x+12,mouse.y);ctx.stroke();
+  }
   drawRadar();
+  // v2.14：手机翻滚按钮的冷却态（DOM 层，桌面不存在该按钮）
+  const rb=document.getElementById('tbRoll');
+  if(rb){rb.classList.toggle('cool',player.cds.roll>0||!!player.roll);}
 }
 /* v2.7：最近敌人的相对方位（相对主角朝向），用于 HUD 文字提示。 */
 function nearestEnemyInfo(){
@@ -1975,13 +2084,13 @@ function drawOverlay(){
     ctx.font=`${infoSize}px "Microsoft YaHei"`;
     if(IS_TOUCH){
       ctx.fillText(UI_LANG==='zh'?'御剑凌空 · 山海之间自动斗法':'Fly the sword · auto-cast',W/2,H/2-34);
-      ctx.fillText(UI_LANG==='zh'?'左摇杆飞行 · 右按钮施法/升降':'Left stick: fly · Right: cast',W/2,H/2+8);
+      ctx.fillText(UI_LANG==='zh'?'左摇杆飞行 · 右按钮升降/剑舞翻滚':'Left stick: fly · Right: altitude / roll',W/2,H/2+8);
       ctx.fillStyle='#8fe0cc';ctx.font=`bold ${infoSize+2}px "Microsoft YaHei"`;
       ctx.fillText(UI_LANG==='zh'?'点画面开始':'Tap to start',W/2,H/2+92);
     }else{
       ctx.fillText(L('introSub'),W/2,H/2-34);
       ctx.fillText(L('introKeys'),W/2,H/2+8);
-      ctx.fillText(L('introSea'),W/2,H/2+36);
+      ctx.fillText(L('introRoll'),W/2,H/2+36);
       ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText(L('introStart'),W/2,H/2+92);
     }
     ctx.textAlign='left';
