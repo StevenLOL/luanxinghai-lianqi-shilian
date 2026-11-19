@@ -1442,13 +1442,15 @@ function drawTerrain(){
   const range=Math.max(8,QUALITY.range-(QUALITY.adaptive===2?4:(QUALITY.adaptive===1?2:0)));
   const cx=Math.round(player.pos.x/step),cz=Math.round(player.pos.z/step);
   /* ① 角点共享：原实现每格算 4 次 terrainH（每次 5 层 fbm），
-     32×32 格 = 4096 次噪声；预计算 (2r+1)^2 个格点后只需 1089 次。 */
+     32×32 格 = 4096 次噪声；预计算 (2r+1)^2 个格点后只需 1089 次。
+     注意 range 是半宽：格数 (2*range)^2，角点数 (2*range+1)^2。 */
   const g=range*2+1;
   if(!drawTerrain._H||drawTerrain._H.length!==g*g)drawTerrain._H=new Float32Array(g*g);
   const H=drawTerrain._H, ox=(cx-range)*step, oz=(cz-range)*step;
   for(let i=0;i<g;i++)for(let j=0;j<g;j++)H[i*g+j]=terrainH(ox+i*step,oz+j*step);
   const cells=drawTerrain._cells||(drawTerrain._cells=[]); cells.length=0;
-  for(let i=0;i<range;i++)for(let j=0;j<range;j++){
+  // 必须遍历 2*range 格（原版 i=-range..range-1），早期误写 i<range 导致地图只剩左半边
+  for(let i=0;i<range*2;i++)for(let j=0;j<range*2;j++){
     const x0=ox+i*step,z0=oz+j*step,x1=x0+step,z1=z0+step;
     const corners=[{x:x0,y:H[i*g+j],z:z0},{x:x1,y:H[(i+1)*g+j],z:z0},
                    {x:x1,y:H[(i+1)*g+j+1],z:z1},{x:x0,y:H[i*g+j+1],z:z1}];
@@ -1675,7 +1677,9 @@ function drawClouds(){
     }
   }
   cctx.restore();
-  ctx.drawImage(cloudLayer,0,0,W,H);
+  // v2.13：同尺寸走 4 参数快路径；降采样时才用 9 参数缩放
+  if(cloudLayer.width===W&&cloudLayer.height===H)ctx.drawImage(cloudLayer,0,0);
+  else ctx.drawImage(cloudLayer,0,0,W,H);
 }
 function drawBeams(){
   for(const b of beams){
