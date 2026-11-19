@@ -2,22 +2,52 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>御剑·空对地 — MVP v2.6 穿云切云</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#7ac0e8">
+<title>乱星海 · 练气期试炼</title>
 <style>
-  html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;}
-  canvas{display:block;}
+  html,body{margin:0;padding:0;overflow:hidden;background:#bcd8d2;
+       -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+  canvas{display:block;touch-action:none;}
   #tip{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);
        color:#25453f;font:13px/1.5 "Microsoft YaHei",sans-serif;
        background:rgba(244,239,226,.72);padding:6px 14px;border-radius:8px;
        pointer-events:none;opacity:.9;}
   #loading{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
        color:#25453f;font:18px "Microsoft YaHei";}
+  /* v2.13 手机端：虚拟摇杆 + 技能按钮，仅在触摸设备显示 */
+  .touch-ui{display:none!important;position:fixed;z-index:10;touch-action:none;}
+  body.touch #joy{display:block!important;}
+  body.touch #tb{display:grid!important;}
+  body.touch #tip{display:none;}
+  #joy{left:22px;bottom:34px;width:132px;height:132px;border-radius:50%;
+       background:rgba(24,60,54,.28);border:2px solid rgba(190,240,220,.55);}
+  #joyKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;
+       border-radius:50%;background:rgba(160,230,210,.62);border:2px solid rgba(240,255,250,.8);}
+  #tb{right:14px;bottom:22px;display:grid;grid-template-columns:repeat(3,58px);gap:8px;}
+  #tb button{width:58px;height:52px;border-radius:12px;border:2px solid rgba(235,255,248,.7);
+       background:rgba(24,60,54,.55);color:#eefbf5;font:bold 15px/1.1 "Microsoft YaHei";
+       touch-action:none;}
+  #tb button.on{background:rgba(60,150,120,.78);}
+  #tb button small{display:block;font-size:10px;font-weight:normal;opacity:.85;}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="loading">山海素材载入中…</div>
 <div id="tip">W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
+<div id="joy" class="touch-ui"><div id="joyKnob"></div></div>
+<div id="tb" class="touch-ui">
+  <button data-act="sword">1<small>飞剑</small></button>
+  <button data-act="fire">2<small>火球</small></button>
+  <button data-act="ice">3<small>冰剑</small></button>
+  <button data-act="lightning">4<small>雷法</small></button>
+  <button data-act="altUp">升<small>高度</small></button>
+  <button data-act="altDown">降<small>高度</small></button>
+  <button data-act="auto" id="tbAuto">自动<small>斗法</small></button>
+  <button data-act="vision" id="tbVision">视野<small>开关</small></button>
+  <button data-act="dive">俯冲<small>空格</small></button>
+</div>
 <script>
 /* ============================================================
  * 御剑·空对地 MVP v2.6 — 穿云切云 / 离屏云画布 / 11 秒愈合
@@ -31,12 +61,32 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 let W, H, focal;
 const FOV = 62 * Math.PI / 180;
+/* v2.13 自适应质量档：手机默认降档，运行期再按帧时微调。
+   格子边长 step 不变（保持 Forge 阶梯地形观感），只缩小覆盖格数 range。 */
+const IS_TOUCH = (window.matchMedia&&matchMedia('(pointer:coarse)').matches) ||
+  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+const DPR_CAP = 1.5;                        // 桌面 Retina 与手机统一封顶 1.5（3x 全量是 9 倍像素，不划算）
+const QUALITY = {
+  step:25, range:IS_TOUCH?12:16,
+  cloudRank:IS_TOUCH?6:9, cloudScale:IS_TOUCH?0.7:1,
+  edgeStroke:!IS_TOUCH, seaSparkle:!IS_TOUCH, trees:!IS_TOUCH,
+  adaptive:0                                 // 0=满档, 1/2=运行期降档
+};
+window.__QUALITY=QUALITY;                    // 供性能剖析脚本读取
 // v2.6：云单独画在离屏画布上，才能用 destination-out 把穿云通道真正抠掉。
 const cloudLayer=document.createElement('canvas');
 const cctx=cloudLayer.getContext('2d');
 function resize(){
-  W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight;
-  cloudLayer.width=W; cloudLayer.height=H;
+  // v2.13：canvas 物理像素按 DPR 提升清晰度（封顶 DPR_CAP），绘制坐标仍用 CSS 像素。
+  const dpr=Math.min(window.devicePixelRatio||1,DPR_CAP);
+  W=window.innerWidth; H=window.innerHeight;
+  canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr);
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  // 云层本身是柔和大色块，用更低分辨率画再放大，视觉几乎无损。
+  const cdpr=Math.min(dpr,QUALITY.cloudScale);
+  cloudLayer.width=Math.round(W*cdpr); cloudLayer.height=Math.round(H*cdpr);
+  cctx.setTransform(cdpr,0,0,cdpr,0,0);
   focal=(H/2)/Math.tan(FOV/2);
 }
 window.addEventListener('resize', resize); resize();
@@ -79,6 +129,18 @@ function fbm(x,z){
 function continent(x,z){
   return fbm(x*0.0032+16.0,z*0.0032-22.0)*1.8-0.72
        + 0.12*Math.sin(x*0.006+0.5)*Math.cos(z*0.005);
+}
+/* v2.13：terrainColor 每格要取两次 continent（各含 5 层 valueNoise）。
+   网格中心点是有限集合，缓存后相邻帧几乎全命中；上限防增长。 */
+const _contCache=new Map();
+function continentFast(x,z){
+  const k=x+','+z;
+  let v=_contCache.get(k);
+  if(v===undefined){
+    if(_contCache.size>6000)_contCache.clear();
+    v=continent(x,z);_contCache.set(k,v);
+  }
+  return v;
 }
 // 高度量级与 v2.3 接近（海面 0，陆地 1~40），但内部改为 Forge 式阶梯。
 function terrainH(x,z){
@@ -342,6 +404,58 @@ window.addEventListener('mousedown',e=>{
   if(e.button===2)castManual('fire');
 });
 window.addEventListener('contextmenu',e=>e.preventDefault());
+
+/* ---------- v2.13 手机端：虚拟摇杆 + 技能按钮（桌面不接入） ---------- */
+const touch={axisX:0,axisY:0,alt:0};
+if(IS_TOUCH){
+  document.body.classList.add('touch');
+  const joy=document.getElementById('joy'),knob=document.getElementById('joyKnob');
+  let joyId=null;
+  const moveJoy=e=>{
+    for(const t of e.changedTouches){
+      if(t.identifier!==joyId)continue;
+      const r=joy.getBoundingClientRect();
+      let dx=t.clientX-(r.left+r.width/2),dy=t.clientY-(r.top+r.height/2);
+      const max=r.width*0.36,d=Math.hypot(dx,dy)||1;
+      if(d>max){dx=dx/d*max;dy=dy/d*max;}
+      touch.axisX=clamp(dx/max,-1,1); touch.axisY=clamp(dy/max,-1,1);
+      knob.style.transform=`translate(${dx}px,${dy}px)`;
+    }
+  };
+  joy.addEventListener('touchstart',e=>{e.preventDefault();joyId=e.changedTouches[0].identifier;moveJoy(e);},{passive:false});
+  joy.addEventListener('touchmove',e=>{e.preventDefault();moveJoy(e);},{passive:false});
+  const endJoy=e=>{for(const t of e.changedTouches)if(t.identifier===joyId){
+    joyId=null;touch.axisX=touch.axisY=0;knob.style.transform='translate(0,0)';}};
+  joy.addEventListener('touchend',endJoy); joy.addEventListener('touchcancel',endJoy);
+
+  for(const b of document.querySelectorAll('#tb button')){
+    const act=b.dataset.act;
+    if(act==='altUp'||act==='altDown'){
+      b.addEventListener('touchstart',e=>{e.preventDefault();touch.alt=act==='altUp'?1:-1;},{passive:false});
+      const stop=e=>{e.preventDefault();touch.alt=0;};
+      b.addEventListener('touchend',stop); b.addEventListener('touchcancel',stop);
+      continue;
+    }
+    b.addEventListener('touchstart',e=>{
+      e.preventDefault();
+      if(!game.started){game.started=true;return;}
+      if(game.over){reset();return;}
+      if(act==='sword')castManual('sword');
+      else if(act==='fire')castManual('fire');
+      else if(act==='ice')castManual('ice');
+      else if(act==='lightning')castLightning();
+      else if(act==='auto'){player.auto=!player.auto;
+        player.autoChoice=player.auto?L('autoOnBrief'):L('autoOffBrief');b.classList.toggle('on',player.auto);}
+      else if(act==='vision'){player.showVision=!player.showVision;b.classList.toggle('on',player.showVision);}
+      else if(act==='dive')startDive();
+    },{passive:false});
+  }
+  // 点画布开始 / 重来（桌面走 mousedown，手机走这里）
+  canvas.addEventListener('touchstart',e=>{
+    if(!game.started){game.started=true;e.preventDefault();}
+    else if(game.over){reset();e.preventDefault();}
+  },{passive:false});
+}
 
 /* ---------- 相机与投影 ---------- */
 /* v2.7 转向手感：调研结论（信源见 docs/011 §相机）
@@ -1127,13 +1241,13 @@ function update(dt){
      相机只平滑跟随 player.heading，避免“移动方向追相机、相机再追移动方向”的反馈环。 */
   const TURN_RATE=2.0;              // rad/s，约 115°/s
   const REVERSE_SCALE=0.58;         // 后撤比前进慢，表达逆气御剑
-  let turn=0;
+  let turn=touch.axisX;               // v2.13：手机摇杆横轴
   if(keys['a']||keys['arrowleft'])turn-=1;
   if(keys['d']||keys['arrowright'])turn+=1;
   if(turn!==0)player.heading=wrapAngle(player.heading+turn*TURN_RATE*dt);
   player.dir=facingVec(player.heading);
 
-  let mf=0;
+  let mf=-touch.axisY;                // v2.13：摇杆纵轴（上推前进）
   if(keys['w']||keys['arrowup'])mf+=1;
   if(keys['s']||keys['arrowdown'])mf-=1;
   const spd=mf<0?36*REVERSE_SCALE:36;
@@ -1164,7 +1278,7 @@ function update(dt){
     }
     altY=Math.max(groundP,0)+player.targetAlt;
   }else{
-    let man=0;
+    let man=touch.alt;                // v2.13：手机「升/降」按钮，语义同 E/Q
     if(keys['e'])man+=1;
     if(keys['q'])man-=1;
     if(man!==0)player.targetAlt=clamp(player.targetAlt+man*ALT_KEY_SPEED*dt,ALT_MIN,ALT_MAX);
@@ -1302,7 +1416,7 @@ function drawSun(){
 }
 function terrainColor(x,z,h,dist,sea){
   const hs=hash2(x|0,z|0);
-  const slope=continent(x-30,z+15)-continent(x+30,z-15);
+  const slope=continentFast(x-30,z+15)-continentFast(x+30,z-15);
   let m;
   if(sea){
     m=h<-3?0:(h<-1.5?1:2);
@@ -1323,19 +1437,31 @@ function terrainColor(x,z,h,dist,sea){
 }
 function forgeTree(x,z,h){ return h>=2&&h<10&&hash2((x|0)+401,(z|0)-197)>0.86; }
 function drawTerrain(){
-  const step=25,range=16;   // 更细的网格，读出 Forge 式阶梯岛轮廓
+  // v2.13：自适应降档只改覆盖格数，不改变格子边长（保持 Forge 阶梯轮廓）
+  const step=QUALITY.step;
+  const range=Math.max(8,QUALITY.range-(QUALITY.adaptive===2?4:(QUALITY.adaptive===1?2:0)));
   const cx=Math.round(player.pos.x/step),cz=Math.round(player.pos.z/step);
-  const cells=[];
-  for(let i=-range;i<range;i++)for(let j=-range;j<range;j++){
-    const x0=(cx+i)*step,z0=(cz+j)*step,x1=x0+step,z1=z0+step;
-    const corners=[{x:x0,y:terrainH(x0,z0),z:z0},{x:x1,y:terrainH(x1,z0),z:z0},
-                   {x:x1,y:terrainH(x1,z1),z:z1},{x:x0,y:terrainH(x0,z1),z:z1}];
+  /* ① 角点共享：原实现每格算 4 次 terrainH（每次 5 层 fbm），
+     32×32 格 = 4096 次噪声；预计算 (2r+1)^2 个格点后只需 1089 次。 */
+  const g=range*2+1;
+  if(!drawTerrain._H||drawTerrain._H.length!==g*g)drawTerrain._H=new Float32Array(g*g);
+  const H=drawTerrain._H, ox=(cx-range)*step, oz=(cz-range)*step;
+  for(let i=0;i<g;i++)for(let j=0;j<g;j++)H[i*g+j]=terrainH(ox+i*step,oz+j*step);
+  const cells=drawTerrain._cells||(drawTerrain._cells=[]); cells.length=0;
+  for(let i=0;i<range;i++)for(let j=0;j<range;j++){
+    const x0=ox+i*step,z0=oz+j*step,x1=x0+step,z1=z0+step;
+    const corners=[{x:x0,y:H[i*g+j],z:z0},{x:x1,y:H[(i+1)*g+j],z:z0},
+                   {x:x1,y:H[(i+1)*g+j+1],z:z1},{x:x0,y:H[i*g+j+1],z:z1}];
     const mx=(x0+x1)/2,mz=(z0+z1)/2,my=terrainH(mx,mz);
-    const center={x:mx,y:my,z:mz};
-    const depth=V.dot(V.sub(center,cam.pos),cam.f);
+    // 内联点积，避免每格 3 个临时对象
+    const depth=(mx-cam.pos.x)*cam.f.x+(my-cam.pos.y)*cam.f.y+(mz-cam.pos.z)*cam.f.z;
     if(depth<3)continue;
     const pr=corners.map(project); if(pr.some(p=>!p))continue;
-    cells.push({pr,depth,h:my,sea:my<0,mx,mz,x0,z0,tree:forgeTree(mx,mz,my)});
+    /* v2.13 实测：这里曾加屏幕包围盒剔除（少画约 840 格），
+       但 V8 对含该 continue 分支的循环反复 deopt，drawTerrain 反而从
+       1.6ms 涨到 11.6ms。已移除——少画格子不等于更快。 */
+    cells.push({pr,depth,h:my,sea:my<0,mx,mz,x0,z0,
+                tree:QUALITY.trees&&forgeTree(mx,mz,my)});
   }
   cells.sort((a,b)=>b.depth-a.depth);
   for(const c of cells){
@@ -1348,11 +1474,13 @@ function drawTerrain(){
     ctx.beginPath();ctx.moveTo(c.pr[0].x,c.pr[0].y);
     for(let i=1;i<4;i++)ctx.lineTo(c.pr[i].x,c.pr[i].y);
     ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-    // Forge 的阶梯边缘：用较暗边线读出一级一级的台地
-    ctx.strokeStyle=c.sea?'rgba(22,72,132,0.30)':(c.h>=16?'rgba(110,128,150,0.30)':'rgba(30,88,38,0.30)');
-    ctx.lineWidth=1;ctx.stroke();
+    // Forge 的阶梯边缘：用较暗边线读出一级一级的台地（移动端关闭以省 GPU）
+    if(QUALITY.edgeStroke){
+      ctx.strokeStyle=c.sea?'rgba(22,72,132,0.30)':(c.h>=16?'rgba(110,128,150,0.30)':'rgba(30,88,38,0.30)');
+      ctx.lineWidth=1;ctx.stroke();
+    }
     // Forge 海面波光点
-    if(c.sea&&c.h>-3&&hash2((c.x0/25|0)+((game.time*7)|0),(c.z0/25|0)-11)>0.86){
+    if(QUALITY.seaSparkle&&c.sea&&c.h>-3&&hash2((c.x0/25|0)+((game.time*7)|0),(c.z0/25|0)-11)>0.86){
       const sp=project({x:c.mx,y:c.h+0.4,z:c.mz});
       if(sp){ctx.fillStyle='rgba(226,248,255,0.9)';ctx.fillRect(sp.x,sp.y,1.6,1.6);}
     }
@@ -1470,13 +1598,16 @@ function drawPlayer(){
 }
 function drawClouds(){
   cctx.clearRect(0,0,W,H);
-  const sorted=[...clouds].sort((a,b)=>{
+  // v2.13：复用数组，避免每帧 [...clouds] 分配
+  const sorted=drawClouds._sorted||(drawClouds._sorted=[]);
+  sorted.length=0; for(const c of clouds)sorted.push(c);
+  sorted.sort((a,b)=>{
     const da=V.dot(V.sub({x:a.x,y:FORGE_CLOUD_ALT,z:a.z},cam.pos),cam.f);
     const db=V.dot(V.sub({x:b.x,y:FORGE_CLOUD_ALT,z:b.z},cam.pos),cam.f);
     return db-da;
   });
   cctx.save();
-  const rankMax=9; // 对应 Forge clouds≈0.45 的显示密度
+  const rankMax=Math.max(3,QUALITY.cloudRank-(QUALITY.adaptive===2?2:(QUALITY.adaptive===1?1:0)));
   for(const c of sorted){
     if(c.rank>rankMax)continue;
     for(const p of c.puffs){
@@ -1522,7 +1653,7 @@ function drawClouds(){
   cctx.globalCompositeOperation='destination-out';
   cctx.fillStyle='#000';
   for(const c of clouds){
-    if(c.rank>9)continue;
+    if(c.rank>rankMax)continue;
     for(const cut of c.cuts){
       const age=game.time-cut.t0;
       const heal=clamp((CLOUD_CUT_HEAL-age)/3,0,1);
@@ -1544,7 +1675,7 @@ function drawClouds(){
     }
   }
   cctx.restore();
-  ctx.drawImage(cloudLayer,0,0);
+  ctx.drawImage(cloudLayer,0,0,W,H);
 }
 function drawBeams(){
   for(const b of beams){
@@ -1703,7 +1834,7 @@ function drawProjectiles(){
 /* v2.7 敌情雷达：右下角圆形雷达，按主角朝向旋转（正上方 = 主角前方）。
    解决"飞远了不知道敌人在哪"。刻度 60 丈/圈。 */
 function drawRadar(){
-  const cx=W-96, cy=H-96, R=78;
+  const cx=IS_TOUCH?W-64:W-96, cy=IS_TOUCH?Math.max(170,H-300):H-96, R=IS_TOUCH?54:78;
   const range=180;                       // 雷达显示半径（丈）
   ctx.save();
   // 底盘
@@ -1755,7 +1886,9 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f',L('hp'));
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText(L('title')+' v2.12',22,30);
+  const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
+  ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
+  ctx.fillText(L('title')+' v2.13',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -1832,20 +1965,31 @@ function drawOverlay(){
   if(!game.started){
     ctx.fillStyle='rgba(20,36,33,0.62)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
-    ctx.font='bold 42px "Microsoft YaHei"';ctx.fillText(L('title'),W/2,H/2-76);
-    ctx.font='16px "Microsoft YaHei"';
-    ctx.fillText(L('introSub'),W/2,H/2-34);
-    ctx.fillText(L('introKeys'),W/2,H/2+8);
-    ctx.fillText(L('introSea'),W/2,H/2+36);
-    ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText(L('introStart'),W/2,H/2+92);
+    const big=Math.min(42,Math.floor(W/11));
+    ctx.font=`bold ${big}px "Microsoft YaHei"`;ctx.fillText(L('title'),W/2,H/2-76);
+    const infoSize=Math.min(16,Math.floor(W/26));
+    ctx.font=`${infoSize}px "Microsoft YaHei"`;
+    if(IS_TOUCH){
+      ctx.fillText(UI_LANG==='zh'?'御剑凌空 · 山海之间自动斗法':'Fly the sword · auto-cast',W/2,H/2-34);
+      ctx.fillText(UI_LANG==='zh'?'左摇杆飞行 · 右按钮施法/升降':'Left stick: fly · Right: cast',W/2,H/2+8);
+      ctx.fillStyle='#8fe0cc';ctx.font=`bold ${infoSize+2}px "Microsoft YaHei"`;
+      ctx.fillText(UI_LANG==='zh'?'点画面开始':'Tap to start',W/2,H/2+92);
+    }else{
+      ctx.fillText(L('introSub'),W/2,H/2-34);
+      ctx.fillText(L('introKeys'),W/2,H/2+8);
+      ctx.fillText(L('introSea'),W/2,H/2+36);
+      ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText(L('introStart'),W/2,H/2+92);
+    }
     ctx.textAlign='left';
   }
   if(game.over){
     ctx.fillStyle='rgba(20,36,33,0.7)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
-    ctx.font='bold 40px "Microsoft YaHei"';ctx.fillText(L('dead'),W/2,H/2-40);
+    ctx.font=`bold ${Math.min(40,Math.floor(W/11))}px "Microsoft YaHei"`;
+    ctx.fillText(L('dead'),W/2,H/2-40);
     ctx.font='18px "Microsoft YaHei"';ctx.fillText(L('kills',game.kills,game.score),W/2,H/2+6);
-    ctx.fillStyle='#8fe0cc';ctx.fillText(L('deadRestart'),W/2,H/2+52);
+    ctx.fillStyle='#8fe0cc';
+    ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点画面重来':'Tap to restart'):L('deadRestart'),W/2,H/2+52);
     ctx.textAlign='left';
   }
 }
@@ -1854,9 +1998,12 @@ function render(){
   // 避免 render 每帧再跑一次 yaw 阻尼导致双倍角速度）。
   drawSky(); updateCameraBasis();
   drawTerrain(); drawVision(); drawAim(); drawBeams(); drawLightning();
-  const sorted=[...enemies].sort((a,b)=>{
-    const da=V.dot(V.sub({x:a.x,y:a.y,z:a.z},cam.pos),cam.f);
-    const db=V.dot(V.sub({x:b.x,y:b.y,z:b.z},cam.pos),cam.f);
+  // v2.13：复用排序数组，避免每帧分配
+  const sorted=render._sorted||(render._sorted=[]);
+  sorted.length=0; for(const e of enemies)sorted.push(e);
+  sorted.sort((a,b)=>{
+    const da=(a.x-cam.pos.x)*cam.f.x+(a.y-cam.pos.y)*cam.f.y+(a.z-cam.pos.z)*cam.f.z;
+    const db=(b.x-cam.pos.x)*cam.f.x+(b.y-cam.pos.y)*cam.f.y+(b.z-cam.pos.z)*cam.f.z;
     return db-da;
   });
   for(const e of sorted)drawEnemy(e);
@@ -1865,8 +2012,23 @@ function render(){
   drawProjectiles(); drawHUD(); drawOverlay();
 }
 let last=performance.now();
+let perfAcc=0,perfFrames=0,perfCooldown=0;
 function loop(now){
-  let dt=(now-last)/1000;last=now;dt=Math.min(dt,0.05);
+  let dt=(now-last)/1000;last=now;
+  /* v2.13 自适应档位：每 90 帧评估一次。
+     平均帧时 >24ms 降一档、<14ms 升一档，带冷却避免来回抖动；
+     后台切回的巨大间隔钳到 100ms，不误判为卡顿。 */
+  const raw=Math.min(dt*1000,100); dt=Math.min(dt,0.05);
+  if(perfCooldown>0)perfCooldown-=dt;
+  else{
+    perfAcc+=raw;perfFrames++;
+    if(perfFrames>=90){
+      const avg=perfAcc/perfFrames;
+      if(avg>24&&QUALITY.adaptive<2){QUALITY.adaptive++;perfCooldown=3;}
+      else if(avg<14&&QUALITY.adaptive>0){QUALITY.adaptive--;perfCooldown=5;}
+      perfAcc=0;perfFrames=0;
+    }
+  }
   update(dt);render();requestAnimationFrame(loop);
 }
 reset();game.started=false;requestAnimationFrame(loop);
