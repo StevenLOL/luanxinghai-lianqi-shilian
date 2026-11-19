@@ -113,12 +113,13 @@ loadSprites();
 const GRAVITY = 24;
 const FREE_FALL_DMG_SCALE = 0.2;          // 失去动力后伤害变为 1/5
 const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
-/* v2.10：地形跟随高度保持。默认离地 CRUISE_ALT 丈；地形起伏时自动跟随，
-   Q/E 只产生临时偏移（松手回落），俯冲/悬停结束后也回到保持高度。 */
-const CRUISE_ALT = 40;
-const ALT_HOLD_K = 5.0;                   // 高度保持收敛速率（越大越紧跟地形）
-const ALT_MANUAL_SPEED = 26;              // Q/E 手动升降速度（丈/秒）
-const ALT_MANUAL_DECAY = 2.2;             // 松手后临时偏移衰减速率
+/* v2.11：高度保持 = 维持一个「可变的离地高度设定值」，40 只是默认值。
+   Q/E 改变 targetAlt（持久、松手不回弹）；自动维持 = max(地形,0) + targetAlt，
+   遇高山按地形自动升、遇低地自动降。 */
+const DEFAULT_ALT = 40;
+const ALT_MIN = 8, ALT_MAX = 120;            // 可设定的离地高度范围
+const ALT_HOLD_K = 5.0;                      // 高度跟随收敛速率
+const ALT_KEY_SPEED = 26;                    // Q/E 改变设定值的速度（丈/秒）
 const VISION_RANGE = 120;                 // 视野半径（丈）· 练气 1 层基准
 const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60° · 练气 1 层基准
 /* v2.8 等级系统：练气 1→12 层。经验曲线 expToNext(lv)=round(14*lv^1.45+8)，
@@ -179,7 +180,7 @@ const I18N={
   zh:{
     title:'乱星海 · 练气期试炼', hp:'气血', qi:'灵力',
     realmFull:'练气 12 层 · 圆满', realm:'练气 {0} 层 · 经验 {1}/{2}',
-    kills:'击杀 {0}   得分 {1}', altitude:'高度 {0} 丈',
+    kills:'击杀 {0}   得分 {1}', altitude:'高度 {0} 丈（设定 {1}）',
     groundSea:'海洋（无妖兽，灵力快充）', groundLand:'陆地', viewAngle:'视角', inCloud:'穿云中',
     hpRegenHit:'气血回复：受击中…', hpRegen:'气血回复中 +{0}/秒',
     autoOn:'自动攻击 开 (F)', autoOff:'自动攻击 关 (F)', visionOn:'视野 显示 (V)', visionOff:'视野 隐藏 (V)',
@@ -202,7 +203,7 @@ const I18N={
   en:{
     title:'Chaos Sea · Qi Refining Trial', hp:'HP', qi:'Qi',
     realmFull:'Qi Refining XII · Perfect', realm:'Qi Refining {0} · EXP {1}/{2}',
-    kills:'Kills {0}   Score {1}', altitude:'Altitude {0} zhang',
+    kills:'Kills {0}   Score {1}', altitude:'Altitude {0} zhang (set {1})',
     groundSea:'Ocean (no beasts, fast Qi recovery)', groundLand:'Land', viewAngle:'View', inCloud:'In cloud',
     hpRegenHit:'HP recovery: interrupted', hpRegen:'HP recovering +{0}/s',
     autoOn:'Auto-cast ON (F)', autoOff:'Auto-cast OFF (F)', visionOn:'Vision ON (V)', visionOff:'Vision OFF (V)',
@@ -241,7 +242,7 @@ function spellName(key){ return (SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh)[k
   if(loading)loading.textContent=L('loading');
 })();
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,altManual:0,
+let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
@@ -887,6 +888,22 @@ const FRONT_ARC=1.25;                             // 前方扇区半角（±71°
 /* 方位角 → 世界偏移。约定与 facingVec 一致：角 a 的正前方 = (sin a, -cos a)，
    这样 hd=0 时"正前方"就是 -z 方向，与相机/朝向完全同一套坐标系。 */
 function angleOffset(a,r){ return {x:Math.sin(a)*r,z:-Math.cos(a)*r}; }
+/* v2.11：在给定角度附近找一个陆地落点，保证敌人不在海面生成/回收。 */
+function landSpotNear(angle,radius){
+  for(let i=0;i<24;i++){
+    const a=angle+(Math.random()*2-1)*0.9;
+    const r=Math.max(20,radius*(0.6+Math.random()*0.6));
+    const off=angleOffset(a,r);
+    const x=player.pos.x+off.x, z=player.pos.z+off.z;
+    if(!isSea(x,z))return {x,z};
+  }
+  // 兜底：从原点向外找陆地（世界原点附近是大陆）
+  for(let r=0;r<400;r+=25)for(let a=0;a<8;a++){
+    const x=Math.cos(a*Math.PI/4)*r, z=Math.sin(a*Math.PI/4)*r;
+    if(!isSea(x,z))return {x,z};
+  }
+  return {x:player.pos.x,z:player.pos.z};
+}
 function spawnEnemy(boss,opts={}){
   const forward=opts.forward!==false;
   const hd=player.heading;
@@ -904,10 +921,9 @@ function spawnEnemy(boss,opts={}){
     tries++;
   }while(isSea(x,z)&&tries<24);
   if(isSea(x,z)){
-    // v2.7：海面回退点也必须落在主角前方，否则会破坏"前方偏置"的可及性保证
-    const a=player.heading+(Math.random()*2-1)*FRONT_ARC*0.5;
-    const off=angleOffset(a,ENEMY_SPAWN_MIN+20);
-    x=player.pos.x+off.x; z=player.pos.z+off.z;
+    // v2.11：回退点必须落在陆地（landSpotNear 内部保证），同时保持前方偏置
+    const spot=landSpotNear(player.heading,ENEMY_SPAWN_MIN+20);
+    x=spot.x; z=spot.z;
   }
   const maxQi=boss?120:60;
   enemies.push({
@@ -928,9 +944,8 @@ function recycleStragglers(){
   for(const e of enemies){
     if(horizDist(e,player.pos)<MAX_CHASE)continue;
     const a=player.heading+(Math.random()*2-1)*FRONT_ARC*0.8;
-    const r=ENEMY_SPAWN_MIN+Math.random()*50;
-    const off=angleOffset(a,r);
-    const nx=player.pos.x+off.x, nz=player.pos.z+off.z;
+    const spot=landSpotNear(a,ENEMY_SPAWN_MIN+Math.random()*50);
+    const nx=spot.x, nz=spot.z;
     e.x=nx; e.z=nz; e.y=terrainH(nx,nz);
     e.hp=e.maxHp; e.qi=e.maxQi;
     for(const k in e.cds)e.cds[k]=0;
@@ -1043,7 +1058,7 @@ function fxGuidanceLost(pos){
 /* ---------- 重置 ---------- */
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,altManual:0,
+  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
@@ -1127,10 +1142,10 @@ function update(dt){
 
   /* v2.7：相机不再"硬跟随" player.heading，改由 updateCameraYaw 做
      死区 + 比例增益 + 角速度上限的阻尼跟随（见相机段调研注释）。 */
-  /* v2.10 地形跟随：默认离地 CRUISE_ALT=40 丈，地形起伏时自动保持该距离。
-     Q/E 只做临时手动偏移（松手后衰减回 0）；俯冲结束后由同一套逻辑回到 40 丈。 */
+  /* v2.11：高度保持 = 维持 targetAlt 这个离地高度设定值。
+     Q/E 改设定值（持久，松手不回弹）；遇地形起伏自动升/降维持该离地距离。 */
   const groundP=terrainH(player.pos.x,player.pos.z);
-  const holdY=Math.max(groundP,0)+CRUISE_ALT;
+  let altY;
   if(player.dive){
     const d=player.dive; d.t+=dt;
     if(d.phase==='down'){
@@ -1144,17 +1159,18 @@ function update(dt){
       }
       if(d.t>0.62||player.pos.y<gy+2){d.phase='up';d.t=0;}
     }else{
-      player.pos.y=lerp(player.pos.y,d.startY,1-Math.exp(-4*dt));
+      player.pos.y=lerp(player.pos.y,Math.max(groundP,0)+player.targetAlt,1-Math.exp(-4*dt));
       if(d.t>0.95)player.dive=null;
     }
+    altY=Math.max(groundP,0)+player.targetAlt;
   }else{
     let man=0;
     if(keys['e'])man+=1;
     if(keys['q'])man-=1;
-    if(man!==0)player.altManual=(player.altManual||0)+man*ALT_MANUAL_SPEED*dt;
-    else player.altManual=(player.altManual||0)*Math.exp(-ALT_MANUAL_DECAY*dt);
-    // 保持高度 = 地形高度 + 40 + 临时偏移；用 lerp 收敛，不会瞬移。
-    player.pos.y=lerp(player.pos.y,holdY+(player.altManual||0),1-Math.exp(-ALT_HOLD_K*dt));
+    if(man!==0)player.targetAlt=clamp(player.targetAlt+man*ALT_KEY_SPEED*dt,ALT_MIN,ALT_MAX);
+    altY=Math.max(groundP,0)+player.targetAlt;
+    // 维持设定高度 = 地形高度 + targetAlt；lerp 收敛，遇高山自动升、遇低地自动降。
+    player.pos.y=lerp(player.pos.y,altY,1-Math.exp(-ALT_HOLD_K*dt));
   }
   player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,150);
   player.trail.push({...player.pos});
@@ -1167,6 +1183,7 @@ function update(dt){
   tryAutoAttack('player');
 
   for(const e of enemies){
+    const oldX=e.x,oldZ=e.z;                 // v2.11：移动前位置，用于海面回退
     tickCds(e.cds,dt);
     e.qi=clamp(e.qi+dt*(e.type==='boss'?10:7),0,e.maxQi);
     e.hurt=Math.max(0,e.hurt-dt); e.hitCd=Math.max(0,e.hitCd-dt);
@@ -1199,6 +1216,11 @@ function update(dt){
       else if(dist<32){const s=4*dt;e.x-=dx/dist*s;e.z-=dz/dist*s;}
       tryAutoAttack('enemy',e);
     }
+    // v2.11：敌人不得走入海面——踏入海则退回移动前位置，并换一个游荡方向避免卡住。
+    if(isSea(e.x,e.z)){
+      e.x=oldX; e.z=oldZ;
+      e.wander+=Math.PI;
+    }
     e.y=terrainH(e.x,e.z);
   }
 
@@ -1229,6 +1251,9 @@ function update(dt){
 function hurtPlayer(d,opts={}){
   if(!opts.ignoreInv&&player.inv>0)return;
   player.hp-=d;
+  // v2.11：主角受伤飘红色掉血字（复用 dmgNums 世界坐标飘字系统）
+  dmgNums.push({p:{x:player.pos.x,y:player.pos.y+6,z:player.pos.z},
+                txt:'-'+Math.round(d),life:0.9,color:'#ff5a4a'});
   if(!opts.noInv)player.inv=0.6;
   if(!opts.noFlash)game.flash=1;
   player.lastHit=game.time;
@@ -1603,7 +1628,10 @@ function drawBolt(b){
   }else{
     // v2.9：导弹式飞剑。剑身=弹体；冲刺段拉长金色尾焰，点火转弯段中等，弹射段短。
     ctx.translate(p.x,p.y);ctx.rotate(ang);
-    const L=Math.max(11,8.5*p.s),W=Math.max(2.6,1.6*p.s);
+    // v2.11：飞剑体积缩小。近处 p.s=focal/z 会暴涨（z 小时的放大），
+    // 用 sqrt 压缩 + 硬上限把弹体控制在可读尺寸，同时保留远近透视感。
+    const bs=Math.min(p.s,9);                  // 投影缩放上限，避免近景弹体爆炸
+    const L=Math.max(8,4.6*Math.sqrt(bs)),W=Math.max(1.6,1.05*Math.sqrt(bs));
     const mPhase=b.missile?b.missilePhase:'none';
     const flame=b.powered?(mPhase==='dash'?2.5:(mPhase==='turn'?1.7:(mPhase==='eject'?0.9:1.0))):0;
     // 外层辉光（放大淡金）
@@ -1727,7 +1755,7 @@ function drawHUD(){
   };
   bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f',L('hp'));
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText(L('title')+' v2.10',22,30);
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText(L('title')+' v2.11',22,30);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -1738,7 +1766,7 @@ function drawHUD(){
   ctx.fillStyle='#25453f';ctx.font='13px "Microsoft YaHei"';
   ctx.fillText(L('kills',game.kills,game.score),22,140);
   const ground=terrainH(player.pos.x,player.pos.z);
-  ctx.fillText(L('altitude',Math.round(player.pos.y-Math.max(ground,0))),22,158);
+  ctx.fillText(L('altitude',Math.round(player.pos.y-Math.max(ground,0)),Math.round(player.targetAlt)),22,158);
   ctx.fillText(`${L('ground'+(ground<0?'Sea':'Land'))}   ${L('viewAngle')} ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   '+L('inCloud'):''}`,22,176);
   const canRegen=game.time-player.lastHit>3;
   if(!canRegen&&player.hp<player.maxHp){
