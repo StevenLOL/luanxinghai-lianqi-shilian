@@ -113,6 +113,12 @@ loadSprites();
 const GRAVITY = 24;
 const FREE_FALL_DMG_SCALE = 0.2;          // 失去动力后伤害变为 1/5
 const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
+/* v2.10：地形跟随高度保持。默认离地 CRUISE_ALT 丈；地形起伏时自动跟随，
+   Q/E 只产生临时偏移（松手回落），俯冲/悬停结束后也回到保持高度。 */
+const CRUISE_ALT = 40;
+const ALT_HOLD_K = 5.0;                   // 高度保持收敛速率（越大越紧跟地形）
+const ALT_MANUAL_SPEED = 26;              // Q/E 手动升降速度（丈/秒）
+const ALT_MANUAL_DECAY = 2.2;             // 松手后临时偏移衰减速率
 const VISION_RANGE = 120;                 // 视野半径（丈）· 练气 1 层基准
 const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60° · 练气 1 层基准
 /* v2.8 等级系统：练气 1→12 层。经验曲线 expToNext(lv)=round(14*lv^1.45+8)，
@@ -138,12 +144,20 @@ const FORGE_HAZE=[188,224,246];
 /* v2.7：1 号技能改为金色剑气（与脚下青蓝御剑、火球橙红、冰剑蓝白区分）。
    type:'bolt' 走投射物系统；type:'zone' 走区域持续法术（雷法）。 */
 const SPELLS = {
-  sword:{key:'sword',name:'飞剑术',cd:1.0,cost:8,range:30,powerRange:30,
-         dmg:26,speed:78,homing:true,count:1,radius:0,color:'#ffd45e',type:'bolt'},
+  sword:{key:'sword',name:'飞剑术',cd:2.0,cost:8,range:60,powerRange:60,
+         dmg:26,speed:135,homing:true,count:1,radius:0,color:'#ffd45e',
+         type:'bolt',missile:true},
   fire :{key:'fire', name:'火球',  cd:0.8,cost:14,range:40,powerRange:40,
          dmg:34,speed:58,homing:true,count:1,radius:12,color:'#ff9a4d',type:'bolt'},
   ice  :{key:'ice',  name:'冰剑术',cd:0.7,cost:12,range:20,powerRange:20,
          dmg:14,speed:92,homing:false,count:3,radius:0,color:'#9fd8ff',type:'bolt'}
+};
+/* v2.9 防空导弹式飞剑三段弹道参数（玩家/敌人共用弹体行为）。
+   弹射：垂直冷发射；点火转弯：有限角速度朝目标转向；冲刺：持续加速直取目标。 */
+const MISSILE={
+  ejectTime:0.32, ejectAccel:80, ejectVmax:26, ejectSide:16,   // 弹射段
+  turnSpeed:72, dashSpeed:138, accel:95,                        // 点火/冲刺速度
+  turnRate:5.0, alignAngle:0.14, turnMaxTime:0.9                // 有限角速度/进入冲刺阈值
 };
 // 雷系功法：持续型区域法术。v2.7 起自动选取敌群中心释放，并参与自动斗法评分。
 // 数值定位：广域（14 丈，比火球 12 宽）+ 连锁（命中目标每多一个，单跳伤害 +60%）。
@@ -158,8 +172,76 @@ const ENEMY_SPELL_ORDER=['sword','fire','ice'];         // 敌人只配 1/2/3 �
 const BOSS_BEAM={range:50,radius:14,duration:1.0,tick:0.2,dmg:7,cd:4.0};
 
 /* ---------- 状态 ---------- */
+/* v2.10 中英适配：按浏览器区域自动选语言，内置字典，无外部依赖。
+   L(key, ...args) 返回当前语言文本，{0}{1} 占位符由 args 填充。 */
+const UI_LANG=(navigator.language||'').toLowerCase().indexOf('zh')===0?'zh':'en';
+const I18N={
+  zh:{
+    title:'乱星海 · 练气期试炼', hp:'气血', qi:'灵力',
+    realmFull:'练气 12 层 · 圆满', realm:'练气 {0} 层 · 经验 {1}/{2}',
+    kills:'击杀 {0}   得分 {1}', altitude:'高度 {0} 丈',
+    groundSea:'海洋（无妖兽，灵力快充）', groundLand:'陆地', viewAngle:'视角', inCloud:'穿云中',
+    hpRegenHit:'气血回复：受击中…', hpRegen:'气血回复中 +{0}/秒',
+    autoOn:'自动攻击 开 (F)', autoOff:'自动攻击 关 (F)', visionOn:'视野 显示 (V)', visionOff:'视野 隐藏 (V)',
+    ready:'就绪', spellFire:'火球', spellSword:'飞剑', spellIce:'冰剑', spellLightning:'雷法',
+    autoLock:'自动锁定', autoDecision:'自动决策：{0}   上次：{1}', camera:'相机 {0} (B)',
+    autoOnBrief:'自动开启', autoOffBrief:'自动关闭', expect:'期望 {0}',
+    to:'→', noTarget:'射程内无敌', lockGroup:'自动锁定敌群',
+    bossName:'麒麟', beastName:'妖兽', archerName:'敌修', dummyName:'落点',
+    breakthrough:'突破！练气 {0} 层',
+    nearest:'最近敌人 {0}丈 · {1}', noEnemy:'附近无敌（雷达右下）',
+    dirFront:'正前方', dirRightFront:'右前方', dirLeftFront:'左前方', dirRight:'正右方',
+    dirLeft:'正左方', dirRightBack:'右后方', dirLeftBack:'左后方', dirBack:'正后方',
+    introSub:'视野内自动选最优法术，山海之间御剑凌空',
+    introKeys:'1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角',
+    introSea:'飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',
+    introStart:'点击开始', dead:'道消', deadRestart:'按 R 或点击 重来',
+    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来',
+    loading:'山海素材载入中…'
+  },
+  en:{
+    title:'Chaos Sea · Qi Refining Trial', hp:'HP', qi:'Qi',
+    realmFull:'Qi Refining XII · Perfect', realm:'Qi Refining {0} · EXP {1}/{2}',
+    kills:'Kills {0}   Score {1}', altitude:'Altitude {0} zhang',
+    groundSea:'Ocean (no beasts, fast Qi recovery)', groundLand:'Land', viewAngle:'View', inCloud:'In cloud',
+    hpRegenHit:'HP recovery: interrupted', hpRegen:'HP recovering +{0}/s',
+    autoOn:'Auto-cast ON (F)', autoOff:'Auto-cast OFF (F)', visionOn:'Vision ON (V)', visionOff:'Vision OFF (V)',
+    ready:'READY', spellFire:'Fireball', spellSword:'Sword', spellIce:'Ice Sword', spellLightning:'Thunder',
+    autoLock:'AUTO-LOCK', autoDecision:'AI choice: {0}   Last: {1}', camera:'Camera {0} (B)',
+    autoOnBrief:'Auto ON', autoOffBrief:'Auto OFF', expect:'exp {0}',
+    to:'->', noTarget:'no target in range', lockGroup:'auto-lock crowd',
+    bossName:'Qilin', beastName:'Beast', archerName:'Cultivator', dummyName:'spot',
+    breakthrough:'Breakthrough! Qi Refining {0}',
+    nearest:'Nearest foe {0} zhang · {1}', noEnemy:'No foe nearby (radar bottom-right)',
+    dirFront:'ahead', dirRightFront:'front-right', dirLeftFront:'front-left', dirRight:'right',
+    dirLeft:'left', dirRightBack:'rear-right', dirLeftBack:'rear-left', dirBack:'behind',
+    introSub:'Auto-selects the best spell in sight; fly free between sea and mountain',
+    introKeys:'1 Sword · 2 Fireball · 3 Ice Sword · 4 Thunder · F Auto · V Vision · Z/X/C Camera',
+    introSea:'Fly over the ocean to dodge beasts and recover Qi fast; kill 5 to summon the Qilin',
+    introStart:'Click to start', dead:'Fallen', deadRestart:'Press R or click to restart',
+    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · R Restart',
+    loading:'Loading mountain & sea assets…'
+  }
+};
+function camModeName(){ return UI_LANG==='en'?
+  ({soft:'Smooth',snap:'Responsive',lock:'Fixed'}[cam.mode]||cam.mode):CAM_MODE_NAME[cam.mode]; }
+const SPELL_NAME_I18N={zh:{sword:'飞剑',fire:'火球',ice:'冰剑',lightning:'雷法'},
+  en:{sword:'Sword',fire:'Fireball',ice:'Ice Sword',lightning:'Thunder'}};
+function L(key,...args){
+  const tab=I18N[UI_LANG]||I18N.zh;
+  let s=tab[key]!==undefined?tab[key]:(I18N.zh[key]!==undefined?I18N.zh[key]:key);
+  args.forEach((v,i)=>{s=s.split('{'+i+'}').join(v);});
+  return s;
+}
+function spellName(key){ return (SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh)[key]||key; }
+// v2.10：页面静态 DOM 文案同步本地化
+(function(){
+  const tip=document.getElementById('tip'), loading=document.getElementById('loading');
+  if(tip)tip.textContent=L('tip');
+  if(loading)loading.textContent=L('loading');
+})();
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,
+let player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,altManual:0,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
@@ -245,7 +327,7 @@ window.addEventListener('keydown',e=>{
     cam.yawRate=0;
     player.camNote=`相机 ${CAM_MODE_NAME[cam.mode]}`;
   }
-  if(k==='f'){player.auto=!player.auto;player.autoChoice=player.auto?'自动开启':'自动关闭';}
+  if(k==='f'){player.auto=!player.auto;player.autoChoice=player.auto?L('autoOnBrief'):L('autoOffBrief');}
   if(k==='v')player.showVision=!player.showVision;
   if(k==='r')reset();
   if(e.code==='Space'){e.preventDefault();startDive();}
@@ -436,7 +518,10 @@ function launchSpell(ownerKey,from,target,key){
   const tp=entityPos(target);
   const speed=S.speed*(ownerKey==='player'?1:0.82);
   const pushOne=(aim)=>{
-    const v=ballistic(from,aim,speed);
+    // v2.9：导弹飞剑先垂直弹射（冷发射），由 missilePhase 状态机接管转向/冲刺；
+    // 非导弹（火球/冰剑）仍用 ballistic 抛物线初速。
+    const v=S.missile?{x:(aim.x-from.x)*0.05,y:MISSILE.ejectVmax*0.55,z:(aim.z-from.z)*0.05}
+                     :ballistic(from,aim,speed);
     bolts.push({
       kind:key,owner:ownerKey,pos:{...from},v,
       target:S.homing?target:null,
@@ -444,6 +529,7 @@ function launchSpell(ownerKey,from,target,key){
       homing:S.homing,guided:S.homing,powered:true,
       powerRange:powerRange(key,ownerKey),traveled:0,life:4.0,
       trail:[],phase:Math.random()*6.28,
+      missile:!!S.missile, missilePhase:S.missile?'eject':'none', mt:0,
       size:key==='fire'?1.8:(key==='ice'?0.75:1.25)
     });
   };
@@ -487,8 +573,8 @@ function castSpellFor(ownerKey,key,target,caster){
     }
   }
   if(ownerKey==='player'){
-    const who=target.dummy?'落点':(target.type==='boss'?'麒麟':(target.type==='beast'?'妖兽':'敌修'));
-    player.lastCast=`${S.name} → ${who}`;
+    const who=target.dummy?L('dummyName'):(target.type==='boss'?L('bossName'):(target.type==='beast'?L('beastName'):L('archerName')));
+    player.lastCast=`${spellName(key)} ${L('to')} ${who}`;
   }
   return true;
 }
@@ -525,7 +611,7 @@ function castLightning(){
   if(player.cds.lightning>0||player.qi<LIGHTNING.cost)return false;
   const aim=pickLightningAim();
   if(!aim){
-    player.lastCast=`${LIGHTNING.name} → 射程内无敌`;
+    player.lastCast=`${spellName('lightning')} ${L('to')} ${L('noTarget')}`;
     return false;
   }
   player.qi-=LIGHTNING.cost; player.cds.lightning=LIGHTNING.cd;
@@ -533,7 +619,7 @@ function castLightning(){
     life:LIGHTNING.duration,max:LIGHTNING.duration,tick:0,dmg:LIGHTNING.dmg,chain:LIGHTNING.chain});
   fxRing(aim,LIGHTNING.color,1,LIGHTNING.radius,0.35,4);
   burst(aim,10,LIGHTNING.color,3.0);
-  player.lastCast=`${LIGHTNING.name} → 自动锁定敌群`;
+  player.lastCast=`${spellName('lightning')} ${L('to')} ${L('lockGroup')}`;
   return true;
 }
 function pickManualTarget(){
@@ -568,7 +654,7 @@ function tryAutoAttack(actorKey,enemy){
   if(!choice)return null;
   if(!castSpellFor(actorKey,choice.key,choice.target,actor))return null;
   actor.autoLast=game.time;
-  if(isPlayer)player.autoChoice=`${SPELLS[choice.key].name}｜期望 ${choice.expected.toFixed(0)}`;
+  if(isPlayer)player.autoChoice=`${spellName(choice.key)}｜${L('expect',choice.expected.toFixed(0))}`;
   return choice;
 }
 function detonateBolt(b){
@@ -582,10 +668,71 @@ function detonateBolt(b){
     }
   }
 }
+/* v2.9：防空导弹式制导状态机。
+   eject  弹射段：垂直冷发射，微弱朝目标的水平引导；
+   turn   点火转弯段：有限角速度（球面 slerp）朝目标转，敌人可机动甩开；
+   dash   高速冲刺段：对准后持续加速直取目标。
+   三段都保留重力积分；ballistic 解算补偿重力，保证转向后仍能命中。 */
+function updateMissileGuidance(b,dt){
+  b.mt+=dt;
+  const tp=b.target&&targetAlive(b.target)?entityPos(b.target):null;
+  if(b.missilePhase==='eject'){
+    b.v.y+=MISSILE.ejectAccel*dt;
+    if(b.v.y>MISSILE.ejectVmax)b.v.y=MISSILE.ejectVmax;
+    if(tp){
+      const dx=tp.x-b.pos.x,dz=tp.z-b.pos.z,d=Math.hypot(dx,dz)||1;
+      b.v.x+=dx/d*MISSILE.ejectSide*dt;
+      b.v.z+=dz/d*MISSILE.ejectSide*dt;
+    }
+    if(b.mt>=MISSILE.ejectTime){b.missilePhase='turn';b.mt=0;fxMissileIgnite(b.pos,b.color);}
+    return;
+  }
+  let speed=Math.hypot(b.v.x,b.v.y,b.v.z)||1;
+  if(tp){
+    const want=ballistic(b.pos,tp,speed);
+    const wl=Math.hypot(want.x,want.y,want.z)||1;
+    const wx=want.x/wl,wy=want.y/wl,wz=want.z/wl;
+    const cx=b.v.x/speed,cy=b.v.y/speed,cz=b.v.z/speed;
+    const dot=clamp(cx*wx+cy*wy+cz*wz,-1,1);
+    const ang=Math.acos(dot);
+    const maxTurn=MISSILE.turnRate*dt;
+    let nx,ny,nz;
+    if(ang<=maxTurn||ang<1e-4){nx=wx;ny=wy;nz=wz;}
+    else{
+      const t=maxTurn/ang,sa=Math.sin(ang)||1e-6;
+      const a=Math.sin((1-t)*ang)/sa,c=Math.sin(t*ang)/sa;
+      nx=cx*a+wx*c;ny=cy*a+wy*c;nz=cz*a+wz*c;
+      const nl=Math.hypot(nx,ny,nz)||1;nx/=nl;ny/=nl;nz/=nl;
+    }
+    if(b.missilePhase==='turn'&&(ang<MISSILE.alignAngle||b.mt>MISSILE.turnMaxTime)){
+      b.missilePhase='dash';b.mt=0;
+      fxRing(b.pos,b.color,0.6,3.0,0.22,2);
+    }
+    const cap=b.missilePhase==='dash'?MISSILE.dashSpeed:MISSILE.turnSpeed;
+    if(speed<cap)speed=Math.min(cap,speed+MISSILE.accel*dt);
+    b.v.x=nx*speed;b.v.y=ny*speed;b.v.z=nz*speed;
+  }else if(speed<MISSILE.dashSpeed){
+    speed=Math.min(MISSILE.dashSpeed,speed+MISSILE.accel*0.4*dt);
+    const s=Math.hypot(b.v.x,b.v.y,b.v.z)||1;
+    b.v.x=b.v.x/s*speed;b.v.y=b.v.y/s*speed;b.v.z=b.v.z/s*speed;
+  }
+}
+/* 点火爆焰：点火瞬间的一圈金环 + 火星 + 白色浓烟。 */
+function fxMissileIgnite(pos,color){
+  fxRing(pos,color||'#ffd45e',1.0,4.2,0.3,4);
+  burst(pos,14,'#ffcf4d',3.0);
+  for(let i=0;i<8;i++){
+    pushParticle({kind:'smoke',p:{...pos},
+      v:{x:(Math.random()-0.5)*4,y:1+Math.random()*3,z:(Math.random()-0.5)*4},
+      life:0.5+Math.random()*0.3,color:'rgba(255,240,200,0.75)',size:3+Math.random()*2,grav:-1,drag:2});
+  }
+}
 function updateBolts(dt){
   for(let i=bolts.length-1;i>=0;i--){
     const b=bolts[i];
-    if(b.guided&&b.target){
+    if(b.missile&&b.powered){
+      updateMissileGuidance(b,dt);
+    }else if(b.guided&&b.target){
       if(!targetAlive(b.target)){b.guided=false;b.target=null;}
       else{
         const tp=entityPos(b.target);
@@ -609,7 +756,26 @@ function updateBolts(dt){
       fxGuidanceLost(b.pos);
     }
     b.life-=dt;
-    if(Math.random()<(b.kind==='fire'?0.9:0.55)){
+    if(b.missile&&b.powered){
+      // v2.9：导弹沿速度反方向持续喷焰；冲刺段更密更亮，弹射段喷白烟。
+      const dir=V.norm(b.v);
+      const isEject=b.missilePhase==='eject', isDash=b.missilePhase==='dash';
+      const rate=isDash?0.95:(isEject?0.7:0.8);
+      if(Math.random()<rate){
+        const back=isEject?0.5:(isDash?2.2:1.4);
+        const spread=isDash?0.8:1.6;
+        pushParticle({
+          kind:isEject?'smoke':'spark',
+          p:{x:b.pos.x-dir.x*b.size*1.6,y:b.pos.y-dir.y*b.size*1.6,z:b.pos.z-dir.z*b.size*1.6},
+          v:{x:-dir.x*back+(Math.random()-0.5)*spread,
+             y:-dir.y*back+(Math.random()-0.5)*spread+0.6,
+             z:-dir.z*back+(Math.random()-0.5)*spread},
+          life:isDash?0.42:(isEject?0.55:0.32),
+          color:isEject?'rgba(255,238,196,0.7)':(isDash?'#ffe08a':'#ffd45e'),
+          size:(isDash?2.8:2.0)*b.size,grav:isEject?-1:1.5,drag:isEject?2:0.8
+        });
+      }
+    }else if(Math.random()<(b.kind==='fire'?0.9:0.55)){
       const jx=(Math.random()-0.5)*3,jz=(Math.random()-0.5)*3;
       pushParticle({
         kind:b.kind==='fire'?'ember':(b.kind==='ice'?'spark':'spark'),
@@ -783,7 +949,7 @@ function hurtEnemy(e,dmg){
     game.score+=e.type==='boss'?100:10; game.kills++;
     // v2.8：击杀经验；可能触发连升，升级特效在 addExp 内产生。
     const lvUps=addExp(EXP_KILL[e.type]||EXP_KILL.beast);
-    if(lvUps>0)player.lastCast=`突破！练气 ${pLevel()} 层`;
+    if(lvUps>0)player.lastCast=L('breakthrough',pLevel());
     burst({x:e.x,y:e.y+5,z:e.z},e.type==='boss'?40:20,'#d9a441',2.4);
   }
 }
@@ -877,7 +1043,7 @@ function fxGuidanceLost(pos){
 /* ---------- 重置 ---------- */
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false};
-  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,
+  player={pos:{x:0,y:34,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,altManual:0,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
@@ -961,6 +1127,10 @@ function update(dt){
 
   /* v2.7：相机不再"硬跟随" player.heading，改由 updateCameraYaw 做
      死区 + 比例增益 + 角速度上限的阻尼跟随（见相机段调研注释）。 */
+  /* v2.10 地形跟随：默认离地 CRUISE_ALT=40 丈，地形起伏时自动保持该距离。
+     Q/E 只做临时手动偏移（松手后衰减回 0）；俯冲结束后由同一套逻辑回到 40 丈。 */
+  const groundP=terrainH(player.pos.x,player.pos.z);
+  const holdY=Math.max(groundP,0)+CRUISE_ALT;
   if(player.dive){
     const d=player.dive; d.t+=dt;
     if(d.phase==='down'){
@@ -978,10 +1148,14 @@ function update(dt){
       if(d.t>0.95)player.dive=null;
     }
   }else{
-    if(keys['e'])player.pos.y+=26*dt;
-    if(keys['q'])player.pos.y-=26*dt;
+    let man=0;
+    if(keys['e'])man+=1;
+    if(keys['q'])man-=1;
+    if(man!==0)player.altManual=(player.altManual||0)+man*ALT_MANUAL_SPEED*dt;
+    else player.altManual=(player.altManual||0)*Math.exp(-ALT_MANUAL_DECAY*dt);
+    // 保持高度 = 地形高度 + 40 + 临时偏移；用 lerp 收敛，不会瞬移。
+    player.pos.y=lerp(player.pos.y,holdY+(player.altManual||0),1-Math.exp(-ALT_HOLD_K*dt));
   }
-  const groundP=terrainH(player.pos.x,player.pos.z);
   player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,150);
   player.trail.push({...player.pos});
   if(player.trail.length>22)player.trail.shift();
@@ -1079,8 +1253,27 @@ function drawSky(){
   // Forge hazeCol [188,224,246] 的近地平线淡雾带
   ctx.fillStyle='rgba(188,224,246,0.34)';
   ctx.fillRect(0,H*0.62,W,H*0.16);
-  ctx.fillStyle='rgba(255,248,220,0.65)';
-  ctx.beginPath();ctx.arc(W*0.74,H*0.16,34,0,Math.PI*2);ctx.fill();
+  drawSun();
+}
+/* v2.10：太阳固定在世界天球的一个方向（不再是屏幕贴片）。
+   用「相机位置 + 固定方向 × 极远距离」投影：玩家平移时屏幕位置几乎不变，
+   相机转向时随天球自然移动，背对太阳时 project 返回 null 而消失。
+   圆盘像素半径固定，符合天体的无限远视觉。 */
+/* 位于地平线上方、偏世界前方（-z）偏右（+x）的固定方位。
+   仰角刻意压低（≈0）：俯视相机 FOV 62°、俯角约 22°，视野上半边界接近水平，
+   仰角过高的太阳会被投到屏幕上方之外而不可见。 */
+const SUN_DIR=V.norm({x:0.43,y:0.02,z:-0.90});
+function drawSun(){
+  const far={x:cam.pos.x+SUN_DIR.x*1200,y:cam.pos.y+SUN_DIR.y*1200,z:cam.pos.z+SUN_DIR.z*1200};
+  const p=project(far);
+  if(!p)return;                                  // 背对太阳：不可见
+  const r=Math.max(20,Math.min(W,H)*0.036);
+  const g=ctx.createRadialGradient(p.x,p.y,r*0.2,p.x,p.y,r*2.5);
+  g.addColorStop(0,'rgba(255,250,228,0.95)');
+  g.addColorStop(0.38,'rgba(255,246,208,0.5)');
+  g.addColorStop(1,'rgba(255,240,198,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,r*2.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(255,251,232,0.92)';ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();
 }
 function terrainColor(x,z,h,dist,sea){
   const hs=hash2(x|0,z|0);
@@ -1408,12 +1601,14 @@ function drawBolt(b){
     ctx.strokeStyle=b.powered?'#7fc7ff':'#7f8b88';ctx.lineWidth=1;ctx.stroke();
     ctx.beginPath();ctx.moveTo(-L*0.2,-W*1.4);ctx.lineTo(-L*0.2,W*1.4);ctx.stroke();
   }else{
-    // v2.7：飞剑术 = 金色剑气。加长剑身 + 双层辉光 + 高光芯，远距离也一眼可见。
+    // v2.9：导弹式飞剑。剑身=弹体；冲刺段拉长金色尾焰，点火转弯段中等，弹射段短。
     ctx.translate(p.x,p.y);ctx.rotate(ang);
     const L=Math.max(11,8.5*p.s),W=Math.max(2.6,1.6*p.s);
+    const mPhase=b.missile?b.missilePhase:'none';
+    const flame=b.powered?(mPhase==='dash'?2.5:(mPhase==='turn'?1.7:(mPhase==='eject'?0.9:1.0))):0;
     // 外层辉光（放大淡金）
     if(b.powered){
-      ctx.shadowBlur=26;ctx.shadowColor='#ffcf4d';
+      ctx.shadowBlur=26+(mPhase==='dash'?10:0);ctx.shadowColor='#ffcf4d';
       ctx.fillStyle='rgba(255,196,74,0.30)';
       ctx.beginPath();ctx.moveTo(L*1.12,0);ctx.lineTo(0,-W*1.9);
       ctx.lineTo(-L*0.5,-W*1.15);ctx.lineTo(-L*0.5,W*1.15);ctx.lineTo(0,W*1.9);ctx.closePath();ctx.fill();
@@ -1424,15 +1619,24 @@ function drawBolt(b){
     ctx.lineTo(-L*0.45,W*0.6);ctx.lineTo(0,W);ctx.closePath();
     ctx.fillStyle=b.powered?'#ffd75e':'#9aa8a2';ctx.fill();
     if(b.powered){
-      // 高光剑脊
       ctx.shadowBlur=0;ctx.strokeStyle='#fffbe8';ctx.lineWidth=Math.max(1,W*0.34);
       ctx.beginPath();ctx.moveTo(-L*0.3,0);ctx.lineTo(L*0.74,0);ctx.stroke();
-      // 剑尖亮点
       ctx.fillStyle='#fffdf0';ctx.beginPath();ctx.arc(L*0.82,0,Math.max(1,W*0.28),0,Math.PI*2);ctx.fill();
+      // 导弹尾焰：锥形，由内白→外金，随冲刺阶段拉长
+      const tailLen=L*flame, tailW=W*(mPhase==='dash'?0.95:0.72);
+      const g=ctx.createLinearGradient(-L*0.45,0,-L*0.45-tailLen,0);
+      g.addColorStop(0,'rgba(255,250,220,0.95)');
+      g.addColorStop(0.45,'rgba(255,205,90,0.75)');
+      g.addColorStop(1,'rgba(255,150,40,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.moveTo(-L*0.45,-tailW);
+      ctx.lineTo(-L*0.45-tailLen,0);ctx.lineTo(-L*0.45,tailW);ctx.closePath();ctx.fill();
     }
-    // 金色剑气尾焰
-    ctx.beginPath();ctx.moveTo(-L*0.45,0);ctx.lineTo(-L*1.05,0);
-    ctx.strokeStyle=b.powered?'#ffd45e':'#7f8b88';ctx.lineWidth=Math.max(1,W*0.7);ctx.stroke();
+    // 失动力后仅余短灰烬
+    if(!b.powered){
+      ctx.beginPath();ctx.moveTo(-L*0.45,0);ctx.lineTo(-L*0.95,0);
+      ctx.strokeStyle='#7f8b88';ctx.lineWidth=Math.max(1,W*0.7);ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -1521,46 +1725,51 @@ function drawHUD(){
     ctx.fillStyle='#f4efe2';ctx.font='12px "Microsoft YaHei"';
     ctx.fillText(`${label} ${Math.round(v)}/${max}`,x,y-5);
   };
-  bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f','气血');
-  bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc','灵力');
-  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地 v2.8',22,30);
+  bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f',L('hp'));
+  bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
+  ctx.fillStyle='#25453f';ctx.font='bold 20px "Microsoft YaHei"';ctx.fillText(L('title')+' v2.10',22,30);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
   const eg=ctx.createLinearGradient(22,expY,212,expY);eg.addColorStop(0,'#9b6fd0');eg.addColorStop(1,'#d9b8ff');
   ctx.fillStyle=eg;ctx.fillRect(22,expY,190*clamp(maxed?1:player.exp/need,0,1),8);
   ctx.fillStyle='#4a3a6a';ctx.font='12px "Microsoft YaHei"';
-  ctx.fillText(maxed?'练气 12 层 · 圆满':`练气 ${pLevel()} 层 · 经验 ${Math.floor(player.exp)}/${need}`,22,expY-5);
+  ctx.fillText(maxed?L('realmFull'):L('realm',pLevel(),Math.floor(player.exp),need),22,expY-5);
   ctx.fillStyle='#25453f';ctx.font='13px "Microsoft YaHei"';
-  ctx.fillText(`击杀 ${game.kills}   得分 ${game.score}`,22,140);
+  ctx.fillText(L('kills',game.kills,game.score),22,140);
   const ground=terrainH(player.pos.x,player.pos.z);
-  ctx.fillText(`高度 ${Math.round(player.pos.y-Math.max(ground,0))} 丈`,22,158);
-  ctx.fillText(`脚下 ${ground<0?'海洋（无妖兽，灵力快充）':'陆地'}   视角 ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   穿云中':''}`,22,176);
+  ctx.fillText(L('altitude',Math.round(player.pos.y-Math.max(ground,0))),22,158);
+  ctx.fillText(`${L('ground'+(ground<0?'Sea':'Land'))}   ${L('viewAngle')} ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   '+L('inCloud'):''}`,22,176);
   const canRegen=game.time-player.lastHit>3;
   if(!canRegen&&player.hp<player.maxHp){
-    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText('气血回复：受击中…',22,194);
+    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText(L('hpRegenHit'),22,194);
   }else if(player.hp<player.maxHp){
-    ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(`气血回复中 +${pRegenHp().toFixed(1)}/秒`,22,194);
+    ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(L('hpRegen',pRegenHp().toFixed(1)),22,194);
   }
   ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
-  ctx.fillText(`自动攻击 ${player.auto?'开':'关'} (F)   视野 ${player.showVision?'显示':'隐藏'} (V) ${Math.round(pVisionRange())}丈`,22,214);
+  ctx.fillText(`${L(player.auto?'autoOn':'autoOff')}   ${L(player.showVision?'visionOn':'visionOff')} ${Math.round(pVisionRange())}${UI_LANG==='zh'?'丈':' zhang'}`,22,214);
   ctx.fillStyle='#25453f';
-  ctx.fillText(`1 飞剑 ${spellRange('sword','player').toFixed(0)}丈 ${player.cds.sword>0?'CD'+player.cds.sword.toFixed(1):'就绪'}`,22,234);
-  ctx.fillText(`2 火球 ${spellRange('fire','player').toFixed(0)}丈 ${player.cds.fire>0?'CD'+player.cds.fire.toFixed(1):'就绪'}`,22,252);
-  ctx.fillText(`3 冰剑 ${spellRange('ice','player').toFixed(0)}丈 ${player.cds.ice>0?'CD'+player.cds.ice.toFixed(1):'就绪'}`,22,270);
-  ctx.fillText(`4 雷法 ${spellRange('lightning','player').toFixed(0)}丈 自动锁定 ${player.cds.lightning>0?'CD'+player.cds.lightning.toFixed(1):'就绪'}`,22,288);
+  const spellLine=(idx,name,key)=>{
+    const r=spellRange(key,'player').toFixed(0), cd=player.cds[key];
+    const status=cd>0?'CD'+cd.toFixed(1):L('ready');
+    const extra=key==='lightning'?' '+L('autoLock'):'';
+    ctx.fillText(`${idx} ${name} ${r}${UI_LANG==='zh'?'丈':' zhang'}${extra} ${status}`,22,idx==='1'?234:(idx==='2'?252:(idx==='3'?270:288)));
+  };
+  const SN=SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh;
+  spellLine('1',SN.sword,'sword');spellLine('2',SN.fire,'fire');
+  spellLine('3',SN.ice,'ice');spellLine('4',SN.lightning,'lightning');
   ctx.fillStyle='rgba(45,95,88,0.85)';
-  ctx.fillText(`自动决策：${player.autoChoice}   上次：${player.lastCast}`,22,308);
+  ctx.fillText(L('autoDecision',player.autoChoice,player.lastCast),22,308);
   // v2.7：相机档位 + 最近敌人方位提示
   ctx.fillStyle='rgba(45,95,88,0.85)';
-  ctx.fillText(`相机 ${CAM_MODE_NAME[cam.mode]} (B)`,22,328);
+  ctx.fillText(L('camera',camModeName()),22,328);
   const near=nearestEnemyInfo();
   if(near){
     ctx.fillStyle='rgba(180,90,60,0.95)';
-    ctx.fillText(`最近敌人 ${Math.round(near.d)}丈 · ${near.dirName}`,22,348);
+    ctx.fillText(L('nearest',Math.round(near.d),near.dirName),22,348);
   }else{
     ctx.fillStyle='rgba(90,120,110,0.8)';
-    ctx.fillText('附近无敌（雷达右下）',22,348);
+    ctx.fillText(L('noEnemy'),22,348);
   }
   ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
@@ -1583,11 +1792,11 @@ function nearestEnemyInfo(){
   const ang=Math.atan2(r,f)*180/Math.PI;   // 0=正前，+90=正右
   let dirName;
   const a=Math.abs(ang);
-  if(a<22)dirName='正前方';
-  else if(a<68)dirName=(ang>0?'右前方':'左前方');
-  else if(a<112)dirName=(ang>0?'正右方':'正左方');
-  else if(a<158)dirName=(ang>0?'右后方':'左后方');
-  else dirName='正后方';
+  if(a<22)dirName=L('dirFront');
+  else if(a<68)dirName=L(ang>0?'dirRightFront':'dirLeftFront');
+  else if(a<112)dirName=L(ang>0?'dirRight':'dirLeft');
+  else if(a<158)dirName=L(ang>0?'dirRightBack':'dirLeftBack');
+  else dirName=L('dirBack');
   return {d:bd,dirName,ang};
 }
 function drawOverlay(){
@@ -1595,20 +1804,20 @@ function drawOverlay(){
   if(!game.started){
     ctx.fillStyle='rgba(20,36,33,0.62)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
-    ctx.font='bold 42px "Microsoft YaHei"';ctx.fillText('御剑 · 空对地',W/2,H/2-76);
+    ctx.font='bold 42px "Microsoft YaHei"';ctx.fillText(L('title'),W/2,H/2-76);
     ctx.font='16px "Microsoft YaHei"';
-    ctx.fillText('视野内自动选最优法术，山海之间御剑凌空',W/2,H/2-34);
-    ctx.fillText('1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角',W/2,H/2+8);
-    ctx.fillText('飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',W/2,H/2+36);
-    ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText('点击开始',W/2,H/2+92);
+    ctx.fillText(L('introSub'),W/2,H/2-34);
+    ctx.fillText(L('introKeys'),W/2,H/2+8);
+    ctx.fillText(L('introSea'),W/2,H/2+36);
+    ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText(L('introStart'),W/2,H/2+92);
     ctx.textAlign='left';
   }
   if(game.over){
     ctx.fillStyle='rgba(20,36,33,0.7)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
-    ctx.font='bold 40px "Microsoft YaHei"';ctx.fillText('道消',W/2,H/2-40);
-    ctx.font='18px "Microsoft YaHei"';ctx.fillText(`击杀 ${game.kills} · 得分 ${game.score}`,W/2,H/2+6);
-    ctx.fillStyle='#8fe0cc';ctx.fillText('按 R 或点击 重来',W/2,H/2+52);
+    ctx.font='bold 40px "Microsoft YaHei"';ctx.fillText(L('dead'),W/2,H/2-40);
+    ctx.font='18px "Microsoft YaHei"';ctx.fillText(L('kills',game.kills,game.score),W/2,H/2+6);
+    ctx.fillStyle='#8fe0cc';ctx.fillText(L('deadRestart'),W/2,H/2+52);
     ctx.textAlign='left';
   }
 }
