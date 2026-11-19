@@ -137,6 +137,45 @@ function get(p, m = 'GET') {
   console.log('提示条状态（榜单打开时）:', JSON.stringify(R.tipOpen));
   await ev('boardOpen=false; true');
 
+  /* ---------- v2.21：Kill Cam 回放复用本体法术特效 ---------- */
+  R.killCam = await ev(`(()=>{
+    const res={};
+    // 三种法术各自造一枚真实弹丸打死玩家，检查回放记录与伪弹丸分派
+    for(const kind of ['sword','fire','ice']){
+      game.started=true; game.over=false; game.time=0;
+      player.hp=5; player.inv=0; enemies.length=0; bolts.length=0;
+      const from={x:player.pos.x+42,y:player.pos.y+10,z:player.pos.z+42};
+      const b={kind,owner:'enemy',pos:{...from},v:{x:-1,y:0,z:-1},
+        ident:{owner:'enemy',skill:kind,from:{...from},caster:'archer',born:game.time},
+        path:[{...from}],dmg:99,radius:0,color:SPELLS[kind].color,
+        homing:false,guided:false,powered:true,traveled:0,life:4,trail:[],
+        phase:0,missile:false,missilePhase:'none',size:1};
+      for(let i=1;i<=40;i++) b.path.push({x:from.x-i*1.05,y:from.y-i*0.12,z:from.z-i*1.05});
+      bolts.length=0; bolts.push(b);
+      hurtPlayer(999,{ignoreInv:true,noInv:true,noFlash:true,from:boltSource(b)});
+      const rp=game.replay;
+      if(!rp){ res[kind]='NO_REPLAY'; continue; }
+      rp.prog=0.5; rp.ghost=rp.path[20];
+      const fake=killCamFakeBolt(rp);
+      let err=null;
+      try{ drawKillCamGhost(); }catch(e){ err=e.message; }
+      res[kind]={kind:rp.kind,color:rp.color,fakeKind:fake?fake.kind:null,
+                 sCap:fake?fake.sCap:null,err};
+      game.replay=null; game.over=false; game.started=true; player.hp=100;
+    }
+    // 退化输入不崩
+    let degen='ok';
+    try{ killCamFakeBolt({path:[],prog:0,ghost:null}); }catch(e){ degen=e.message; }
+    res.degenerate=degen;
+    return res;
+  })()`);
+  console.log('Kill Cam 法术特效（v2.21）:', JSON.stringify(R.killCam));
+  R.killCamOk =
+    R.killCam.sword && R.killCam.sword.kind === 'sword' && R.killCam.sword.fakeKind === 'sword' && !R.killCam.sword.err &&
+    R.killCam.fire  && R.killCam.fire.kind  === 'fire'  && R.killCam.fire.fakeKind  === 'fire'  && !R.killCam.fire.err &&
+    R.killCam.ice   && R.killCam.ice.kind   === 'ice'   && R.killCam.ice.fakeKind   === 'ice'   && !R.killCam.ice.err &&
+    R.killCam.degenerate === 'ok';
+
   R.exceptions = exc.length;
   console.log('运行期异常:', exc.length);
   console.log('\n结论:', JSON.stringify(R));
