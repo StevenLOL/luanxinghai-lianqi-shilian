@@ -3,10 +3,11 @@
  * 用法：node scripts/13_test_touch.js [cdpHttp]
  */
 const CDP_HTTP = process.argv[2] || 'http://127.0.0.1:9223';
+const { waitReady } = require('./_testlib');
 
 async function main() {
-  const targets = await (await fetch(CDP_HTTP + '/json/list')).json();
-  const page = targets.find(t => t.type === 'page' && t.url.includes('mvp_air_to_ground'));
+  // 总是新建专属页面：避免多标签页时 find 选中别人的页面导致状态串扰
+  const page = await (await fetch(CDP_HTTP + '/json/new?' + encodeURIComponent('http://127.0.0.1:8000/scripts/mvp_air_to_ground.html'), { method: 'PUT' })).json();
   if (!page) throw new Error('未找到游戏页');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -36,7 +37,7 @@ async function main() {
   await trySend('Emulation.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit/605.1.15 Mobile Safari/604.1' });
   await trySend('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   await send('Page.reload', { ignoreCache: true });
-  await sleep(1800);
+  await waitReady(ev, sleep, { requireStarted: false });   // 手机端开场未开始，只等对象就绪
 
   const results = [];
   const ok = (name, pass, detail) => { results.push({ name, pass, detail }); console.log((pass ? 'PASS ' : 'FAIL ') + name + ' — ' + detail); };

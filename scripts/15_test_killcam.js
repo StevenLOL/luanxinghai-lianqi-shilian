@@ -4,10 +4,11 @@
  * 用法：node scripts/15_test_killcam.js [cdpHttp]
  */
 const CDP_HTTP = process.argv[2] || 'http://127.0.0.1:9223';
+const { waitReady } = require('./_testlib');
 
 async function main() {
-  const targets = await (await fetch(CDP_HTTP + '/json/list')).json();
-  const page = targets.find(t => t.type === 'page' && t.url.includes('mvp_air_to_ground'));
+  // 总是新建专属页面：避免多标签页时 find 选中别人的页面导致状态串扰
+  const page = await (await fetch(CDP_HTTP + '/json/new?' + encodeURIComponent('http://127.0.0.1:8000/scripts/mvp_air_to_ground.html'), { method: 'PUT' })).json();
   if (!page) throw new Error('未找到游戏页');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -36,7 +37,7 @@ async function main() {
   await send('Runtime.enable');
   await send('Page.enable');
   await send('Page.reload', { ignoreCache: true });
-  await sleep(1800);
+  await waitReady(ev, sleep);   // 可靠等待游戏就绪（见 _testlib.js）
 
   // 构造一次「敌修·火球」的致命命中：注入带完整 path 的来源，把 hp 打到 1 再致命一击
   await ev(`(() => {

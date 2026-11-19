@@ -9,8 +9,8 @@
 const CDP_HTTP = process.argv[2] || 'http://127.0.0.1:9223';
 
 async function main() {
-  const targets = await (await fetch(CDP_HTTP + '/json/list')).json();
-  const page = targets.find(t => t.type === 'page' && t.url.includes('mvp_air_to_ground'));
+  // 总是新建专属页面：避免多标签页时 find 选中别人的页面导致状态串扰
+  const page = await (await fetch(CDP_HTTP + '/json/new?' + encodeURIComponent('http://127.0.0.1:8000/scripts/mvp_air_to_ground.html'), { method: 'PUT' })).json();
   if (!page) throw new Error('未找到游戏页');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -47,8 +47,21 @@ async function main() {
   await trySend('Emulation.setUserAgentOverride', { userAgent: '' });
   await trySend('Emulation.setTouchEmulationEnabled', { enabled: false });
   await send('Page.reload', { ignoreCache: true });
-  await sleep(1800);
-  await ev('game.started=true; true');
+  /* 关键：等待「游戏真正就绪」而不是固定 sleep。
+     新页面首次导航要下载 120KB HTML + 9.3MB 素材，
+     固定 sleep(1800) 在慢机器上会不够 —— 此时 game 还没定义 / 主循环还没跑，
+     后续所有按键都落空，表现为「偶发失败」且失败项飘忽不定。
+     判据：game 对象存在、game.started 已置位、且主循环已推进过（game.time>0）。 */
+  let ready = false;
+  for (let i = 0; i < 100; i++) {
+    ready = await ev('typeof game!=="undefined" && !!game && !!player && game.started===true && game.time>0').catch(() => false);
+    if (ready) break;
+    await sleep(200);
+  }
+  if (!ready) {
+    await ev('game.started=true; true').catch(() => {});
+    await sleep(300);
+  }
   await sleep(100);
   /* v2.17：敌人重生机制（while(enemies.length<10)spawnEnemy）会不断补充敌人并攻击玩家，
      污染 HP 测量（曾导致"二次受击后 hp 从 60 掉到 39"的假失败）。
@@ -107,8 +120,13 @@ async function main() {
   ok('满血状态也有回血速率文案', /\d/.test(hudFull.full), `文案="${hudFull.full}"`);
 
   /* ============ ② 剑舞：耗蓝 / 0.5s CD / 连段 ============ */
-  // 隔离：关闭自动斗法（否则法术会持续扣灵力，污染耗蓝测量）
+  /* 隔离（两处）：
+     ① 关闭自动斗法 —— 否则法术会持续扣灵力，污染耗蓝测量
+     ② 临时把 pRegenQi 覆写为 0 —— 否则灵力自然回复（7/秒）会在测量窗口内
+        把「扣 20」变成「扣 20 + 回 0.4」，断言偶尔偏差 >0.6 而假失败。
+        覆写只在本测试页生效，reload 后自动失效。 */
   await ev('player.auto=false; player.qi=100; player.maxQi=200; player.cds.roll=0; player.roll=null; true');
+  await ev('window.__origRegenQi=pRegenQi; window.pRegenQi=()=>0; true');
   await keyJ();
   await sleep(60);
   const rollState = await ev('({roll:!!player.roll,qi:player.qi,cd:player.cds.roll})');
@@ -117,8 +135,15 @@ async function main() {
   ok('剑舞冷却 0.5 秒', rollState.cd > 0.3 && rollState.cd <= 0.5, `cds.roll=${rollState.cd.toFixed(3)}`);
 
   // 2.1 连段：CD 转好后（0.5s < 翻滚时长 1.05s）在翻滚中再按 J ⇒ 段数递增
+  /* 关键：必须「显式等到 CD 归零」再按 J。
+     固定 sleep(560) 在帧率波动时可能仍落在 CD 未转好的窗口，
+     第二次 J 被跳过 → 灵力只自然回复不扣蓝 → 差值约 4 而非 20（假失败）。 */
+  for (let i = 0; i < 100; i++) {
+    const cd = await ev('player.cds.roll');
+    if (cd <= 0) break;
+    await sleep(20);
+  }
   const segBefore = await ev('(player.roll&&player.roll.seg)||0');
-  await sleep(560);
   const qiMid = await ev('player.qi');
   await keyJ();
   await sleep(60);

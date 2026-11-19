@@ -1,6 +1,7 @@
 /* v2.17 专项回归：气血无条件持续回复 + 战斗统计 + 练气期大能排行榜
  * 运行前：本地静态服务在 8000，Chrome 调试端口 9223
  */
+const { waitReady } = require('./_testlib');
 const http = require('http');
 const CDP_HTTP = process.argv[2] || 'http://127.0.0.1:9223';
 
@@ -23,10 +24,8 @@ const ok = (name, cond, detail = '') => {
 
 (async () => {
   const targets = await get('/json/list');
-  let page = targets.find((t) => t.type === 'page' && t.url.includes('mvp_air_to_ground'));
-  if (!page) {
-    page = await get('/json/new?' + encodeURIComponent('http://127.0.0.1:8000/scripts/mvp_air_to_ground.html'), 'PUT');
-  }
+  // 总是新建专属页面：避免多标签页时 find 选中别人的页面导致状态串扰
+  const page = await get('/json/new?' + encodeURIComponent('http://127.0.0.1:8000/scripts/mvp_air_to_ground.html'), 'PUT');
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   let id = 0; const pending = new Map(); const exceptions = [];
   ws.onmessage = (m) => {
@@ -45,7 +44,7 @@ const ok = (name, cond, detail = '') => {
 
   await send('Page.enable'); await send('Runtime.enable');
   await send('Page.reload', { ignoreCache: true });
-  await wait(2500);
+  await waitReady(ev, wait);   // 可靠等待游戏就绪（见 _testlib.js）
 
   /* 隔离：敌人重生机制（while(enemies.length<10)spawnEnemy）会不断补充敌人并攻击玩家，
      污染 HP 测量 —— 这与 v2.16 回归踩过的坑同源。

@@ -209,6 +209,12 @@ const LEVEL_MAX = 12;
 const EXP_KILL = {beast:20,archer:24,boss:150};
 function expToNext(lv){ return lv>=LEVEL_MAX?Infinity:Math.round(14*Math.pow(lv,1.45)+8); }
 const LV_GROW={hp:14,qi:10,hpRegen:0.45,qiRegen:0.8,vision:7,visionDeg:1,range:2.5};
+/* v2.18：麒麟（Boss）重生节奏。每累计 BOSS_SPAWN_EVERY 次击杀刷一只麒麟；
+   首个麒麟仍在 kills>=5 时出现（与旧行为一致），之后每 5 杀再刷一只。
+   同屏最多 1 只（见 hasBossAlive）。 */
+const BOSS_SPAWN_EVERY=5;
+/** 场上是否存在存活的麒麟。用于保证同屏最多 1 只、且只在麒麟死亡后才刷下一只。 */
+function hasBossAlive(){ return enemies.some(e=>e.type==='boss'&&e.hp>0); }
 const FORGE_CLOUD_ALT = 42;               // Forge CLOUD_ALT 对应到本 demo 的低云高度
 const FORGE_CK = 8;                       // Forge 云堆叠层数
 // v2.6 切云：Forge CUT_HEAL=11 秒；当前 puff 云用世界单位半径，切后 11 秒愈合。
@@ -364,11 +370,13 @@ function spellName(key){ return (SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh)[k
   if(tip)tip.textContent=L('tip');
   if(loading)loading.textContent=L('loading');
 })();
-let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
+let game={started:false,over:false,score:0,kills:0,time:0,flash:0,
           // v2.15：击杀回放状态。killer=来源信息；replay=回放播放进度；none 表示无回放
           killer:null,replay:null,lastReplay:null,
           // v2.17：战斗统计（排行榜维度）。dmgDealt=造成伤害，dmgTaken=受到伤害，bossKills=击杀 Boss 数
-          dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null};
+          dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null,
+          // v2.18：麒麟重生分段计数。bossWave=已刷出过的麒麟数，killsAtBoss=刷出当前这只时的击杀快照
+          bossWave:0,killsAtBoss:0};
 let player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
@@ -1443,9 +1451,10 @@ function toggleBoard(){
 
 /* ---------- 重置 ---------- */
 function reset(){
-  game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
+  game={started:true,over:false,score:0,kills:0,time:0,flash:0,
         killer:null,replay:null,lastReplay:null,
-        dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null};
+        dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null,
+        bossWave:0,killsAtBoss:0};
   player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,rollDir:1,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
@@ -1835,7 +1844,19 @@ function update(dt){
   while(enemies.length<10)spawnEnemy(false);
   // v2.7：掉队敌人回收，保证主角单向飞行也不会把敌人甩没
   recycleStragglers();
-  if(!game.bossSpawned&&game.kills>=5){spawnEnemy(true,{forward:true});game.bossSpawned=true;}
+  /* v2.18：麒麟（Boss）重生 —— 改为「击杀数分段触发」。
+     v2.17 及之前 bossSpawned 是一次性开关：置 true 后永不复位，
+     麒麟被杀后永不再现（用户反馈的真 bug）。
+     现在改为分段计数：
+       BOSS_SPAWN_EVERY  = 每 5 次击杀刷一只麒麟（首个仍是 kills>=5，与旧行为一致）
+       game.bossWave     = 已刷出过的麒麟数量
+       game.killsAtBoss  = 刷出当前这只时的击杀数快照
+     触发条件：累计击杀数越过下一道门槛，且当前场上没有麒麟（同屏最多 1 只）。 */
+  if(!hasBossAlive()&&game.kills>=(game.bossWave+1)*BOSS_SPAWN_EVERY){
+    spawnEnemy(true,{forward:true});
+    game.bossWave++;
+    game.killsAtBoss=game.kills;
+  }
   updateCamera(dt);
 }
 /* v2.15：从弹丸提取致命回放数据。ident 保留凶手身份，path 为完整轨迹，
@@ -2428,7 +2449,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.17',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.18',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
