@@ -42,12 +42,15 @@
 <div id="tb" class="touch-ui">
   <button data-act="altUp">升<small>高度</small></button>
   <button data-act="altDown">降<small>高度</small></button>
-  <button data-act="roll" id="tbRoll">剑舞翻滚<small>5 秒冷却</small></button>
+  <button data-act="roll" id="tbRoll">剑舞翻滚<small>0.5 秒 · 20 灵力</small></button>
 </div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2.15 — 被击败来源可追溯 / 击杀回放 Kill Cam
+ * 御剑·空对地 MVP v2.16 — 气血随时回 / 剑舞连段 / Kill Cam 子弹时间
  * 定位：docs/009 P0 手感验证原型（非生产版）
+ * 相对 v2.15：① 气血恢复去掉 3 秒硬门槛，改为「随时生效」，HUD 显示值 = 真实速率
+ *             ② 剑舞·万象改为耗 20 灵力 / 0.5 秒冷却，并支持连段（连续机动）
+ *             ③ 击杀回放改为子弹时间式慢加速（0.18x → 1.0x）+ 慢动作视觉
  * 相对 v2.14：记录致命一击的凶手与技能；死亡后以跟随法术的镜头回放从激发到命中主角的全过程。
  *             （横滚+桶滚+半筋斗+大迎角的修仙化复合机动）；手机移除 1234/自动/俯冲按钮。
  * 素材：scripts/assets/*_cut.png（AI 生成 + 08/09 抠图脚本处理）
@@ -182,7 +185,18 @@ const ALT_KEY_SPEED = 26;                    // Q/E 改变设定值的速度（�
 /* v2.14 御剑机动翻滚「剑舞·万象」：借鉴战机四类滚转机动的修仙化表达。
    横滚(绕纵轴360°) → 桶滚(螺旋突进) → 半筋斗抬升(殷麦曼高度收益) → 大迎角收势。
    战斗价值：翻滚期间短暂无敌规避 + 剑气横扫路径敌人 + 小幅爬升抢高度。 */
-const ROLL_CD=5, ROLL_DUR=1.05, ROLL_DMG=30, ROLL_DASH=72;
+/* v2.16 剑舞数值改为「消耗 20 灵力 / 冷却 0.5 秒」：
+   旧版 5 秒冷却 + 0 消耗，一次翻滚要等太久，且不与灵力系统挂钩，
+   无法形成"资源管理"的手感。改成 0.5 秒短冷却后，
+   ROLL_CD(0.5s) < ROLL_DUR(1.05s)，翻滚尚未结束时冷却已转好，
+   再按一次即可把翻滚接下去 → 只要法力够就能连续机动（连段剑舞）。
+   20 灵力/段 vs 陆地回蓝 7/s ⇒ 连打约 8 段就见底，需要去海面或留手。
+   ROLL_CHAIN_WINDOW=0.8s：按下后 0.8s 内没再按 ⇒ 连段在段末断开。 */
+const ROLL_CD=0.5, ROLL_QI_COST=20, ROLL_DUR=1.05, ROLL_DMG=30;
+const ROLL_SPEED=68;        // 翻滚前突速度（丈/秒），与 v2.14 的 72 丈/1.05s 等效
+const ROLL_ALT_GAIN=4;       // 打完一整段（ROLL_DUR）的设定高度收益（丈）
+const ROLL_CHAIN_WINDOW=1.05; // 连段窗口：= 一段时长。按一次 J 恰好滚完整一段；
+                               // 段内再按一次则刷新窗口、段数 +1，可无限续段。
 const VISION_RANGE = 120;                 // 视野半径（丈）· 练气 1 层基准
 const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60° · 练气 1 层基准
 /* v2.8 等级系统：练气 1→12 层。经验曲线 expToNext(lv)=round(14*lv^1.45+8)，
@@ -245,7 +259,7 @@ const I18N={
     realmFull:'练气 12 层 · 圆满', realm:'练气 {0} 层 · 经验 {1}/{2}',
     kills:'击杀 {0}   得分 {1}', altitude:'高度 {0} 丈（设定 {1}）',
     groundSea:'海洋（无妖兽，灵力快充）', groundLand:'陆地', viewAngle:'视角', inCloud:'穿云中',
-    hpRegenHit:'气血回复：受击中…', hpRegen:'气血回复中 +{0}/秒',
+    hpRegenHit:'气血回复：受击后停顿 {0}s', hpRegen:'气血回复中 +{0}/秒', hpRegenFull:'气血已满（回复速率 +{0}/秒）',
     autoOn:'自动攻击 开 (F)', autoOff:'自动攻击 关 (F)', visionOn:'视野 显示 (V)', visionOff:'视野 隐藏 (V)',
     ready:'就绪', spellFire:'火球', spellSword:'飞剑', spellIce:'冰剑', spellLightning:'雷法',
     autoLock:'自动锁定', autoDecision:'自动决策：{0}   上次：{1}', camera:'相机 {0} (B)',
@@ -258,14 +272,16 @@ const I18N={
     dirLeft:'正左方', dirRightBack:'右后方', dirLeftBack:'左后方', dirBack:'正后方',
     introSub:'视野内自动选最优法术，山海之间御剑凌空',
     introKeys:'1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角',
-    introRoll:'J 剑舞·万象翻滚（无敌规避 + 剑气横扫，冷却 5 秒）',
+    introRoll:'J 剑舞·万象翻滚（无敌规避 + 剑气横扫，20 灵力 / 0.5 秒冷却，可连段）',
     introSea:'飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',
     introStart:'点击开始', dead:'道消', deadRestart:'按 R 或点击 重来',
     tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · R 重来',
-    rollReady:'剑舞翻滚 就绪 (J)', rollCd:'剑舞翻滚 CD {0}s', rollName:'剑舞·万象',
+    rollReady:'剑舞翻滚 就绪 (J) · 耗 {0} 灵力', rollCd:'剑舞翻滚 CD {0}s', rollName:'剑舞·万象',
+    rollNoQi:'灵力不足（需 {0}）', rollCombo:'连段 {0}',
     unknownFoe:'不明敌人', killedBy:'被 {0} 的「{1}」击败',
     killCamTitle:'击杀回放', killCamFoe:'凶手：{0}', killCamCast:'法术激发',
     killCamHit:'命中', killCamSkip:'点击 / 按任意键 跳过回放',
+    killCamSpeed:'时缓 ×{0}', killCamTimeAxis:'时间流速',
     deadBy:'{0}', deadViewReplay:'按空格 重看击杀回放',
     loading:'山海素材载入中…'
   },
@@ -274,7 +290,7 @@ const I18N={
     realmFull:'Qi Refining XII · Perfect', realm:'Qi Refining {0} · EXP {1}/{2}',
     kills:'Kills {0}   Score {1}', altitude:'Altitude {0} zhang (set {1})',
     groundSea:'Ocean (no beasts, fast Qi recovery)', groundLand:'Land', viewAngle:'View', inCloud:'In cloud',
-    hpRegenHit:'HP recovery: interrupted', hpRegen:'HP recovering +{0}/s',
+    hpRegenHit:'HP recovery: paused {0}s after hit', hpRegen:'HP recovering +{0}/s', hpRegenFull:'HP full (regen rate +{0}/s)',
     autoOn:'Auto-cast ON (F)', autoOff:'Auto-cast OFF (F)', visionOn:'Vision ON (V)', visionOff:'Vision OFF (V)',
     ready:'READY', spellFire:'Fireball', spellSword:'Sword', spellIce:'Ice Sword', spellLightning:'Thunder',
     autoLock:'AUTO-LOCK', autoDecision:'AI choice: {0}   Last: {1}', camera:'Camera {0} (B)',
@@ -287,14 +303,16 @@ const I18N={
     dirLeft:'left', dirRightBack:'rear-right', dirLeftBack:'rear-left', dirBack:'behind',
     introSub:'Auto-selects the best spell in sight; fly free between sea and mountain',
     introKeys:'1 Sword · 2 Fireball · 3 Ice Sword · 4 Thunder · F Auto · V Vision · Z/X/C Camera',
-    introRoll:'J Sword Dance roll (invulnerable dodge + sword-energy sweep, 5s cooldown)',
+    introRoll:'J Sword Dance roll (invulnerable dodge + sword-energy sweep, 20 Qi / 0.5s CD, chainable)',
     introSea:'Fly over the ocean to dodge beasts and recover Qi fast; kill 5 to summon the Qilin',
     introStart:'Click to start', dead:'Fallen', deadRestart:'Press R or click to restart',
     tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · R Restart',
-    rollReady:'Sword Dance READY (J)', rollCd:'Sword Dance CD {0}s', rollName:'Sword Dance',
+    rollReady:'Sword Dance READY (J) · {0} Qi', rollCd:'Sword Dance CD {0}s', rollName:'Sword Dance',
+    rollNoQi:'Not enough Qi (need {0})', rollCombo:'Combo {0}',
     unknownFoe:'Unknown foe', killedBy:'Slain by {0}\'s {1}',
     killCamTitle:'KILL CAM', killCamFoe:'Killer: {0}', killCamCast:'CAST',
     killCamHit:'IMPACT', killCamSkip:'Click / press any key to skip',
+    killCamSpeed:'SLOW ×{0}', killCamTimeAxis:'Time flow',
     deadBy:'{0}', deadViewReplay:'Press Space to replay the kill',
     loading:'Loading mountain & sea assets…'
   }
@@ -343,8 +361,17 @@ function powerRange(key,ownerKey){
   const S=SPELLS[key]; if(!S)return 0;
   return ownerKey==='player'?S.powerRange+LV_GROW.range*pBonus():S.powerRange;
 }
-function pRegenHp(){ return 2.2+LV_GROW.hpRegen*pBonus(); }
+/* v2.16 气血恢复：改为「随时生效」。
+   旧实现有 game.time-player.lastHit>3 的三秒硬门槛，受击后完全不回血；
+   且基础 2.2/秒 ≈ 血条 3.7px/秒，肉眼看不出在恢复，用户反馈"感觉不对"。
+   现在：基础速率提高到 5.0/秒（可感知），只在受击后的短暂无敌窗内暂停（0.6s），
+   HUD 显示的数值与实际 dt*rate 严格一致。 */
+const HP_REGEN_GRACE = 0.6;                     // 受击后暂停回血的秒数（= 无敌帧时长）
+function pRegenHp(){ return 5.0+LV_GROW.hpRegen*pBonus(); }
 function pRegenQi(isSea){ return (isSea?11:7)+LV_GROW.qiRegen*pBonus(); }
+/* 距上次受击的秒数；>= HP_REGEN_GRACE 才回血（即"随时生效"，仅受击瞬间短暂停顿）。 */
+function hpRegenDelay(){ return Math.max(0,game.time-player.lastHit); }
+function hpRegenActive(){ return hpRegenDelay()>=HP_REGEN_GRACE&&player.hp<player.maxHp; }
 /* 击杀获得经验；可连升多级，升级补满当期新增的 hp/qi 并触发金光特效。 */
 function addExp(amount){
   if(pLevel()>=LEVEL_MAX){player.exp=0;return 0;}   // 满级后经验始终清零
@@ -398,7 +425,7 @@ window.addEventListener('keydown',e=>{
   // v2.15：回放期间任意键跳过；死亡界面空格可重看最后一次击杀
   if(game.replay){game.replay=null;e.preventDefault();return;}
   if(game.over){
-    if(e.code==='Space'&&game.lastReplay){game.replay=Object.assign({},game.lastReplay,{t:0,hold:0,prog:0});e.preventDefault();}
+    if(e.code==='Space'&&game.lastReplay){game.replay=Object.assign({},game.lastReplay,{t:0,shotT:0,ts:KILL_CAM_SLOW_MIN,hold:0,prog:0});e.preventDefault();}
     if(k==='r')reset();
     return;
   }
@@ -407,7 +434,7 @@ window.addEventListener('keydown',e=>{
   if(k==='2')castManual('fire');
   if(k==='3')castManual('ice');
   if(k==='4'||k==='l')castLightning();          // v2.7：雷法自动选敌自动释放
-  if(k==='j')startRoll();                     // v2.14：J = 剑舞·万象翻滚（CD 5s）
+  if(k==='j')startRoll();                     // v2.16：J = 剑舞·万象翻滚（20 灵力 / 0.5s CD，可连段）
   if(k==='k')castManual('fire');              // 火球备用键
   if(k==='z')cam.pitchIdx=0; if(k==='x')cam.pitchIdx=1; if(k==='c')cam.pitchIdx=2;
   if(k==='b'){                                  // v2.7：相机手感档位
@@ -426,13 +453,18 @@ window.addEventListener('mousedown',e=>{
   if(!game.started){game.started=true;return;}
   if(game.replay){game.replay=null;return;}              // v2.15：跳过回放
   if(game.over){reset();return;}
+  /* v2.16：手机端不响应鼠标点击施法。
+     触摸设备会在 touchstart 之后合成 mousedown，若不拦截，
+     玩家点一下画面（本来只是想看/开始）就会莫名其妙放出一道飞剑术。
+     这与 v2.14「手机只保留升降 + 翻滚」的控件约定冲突。 */
+  if(IS_TOUCH)return;
   if(e.button===0)castManual('sword');
   if(e.button===2)castManual('fire');
 });
 window.addEventListener('contextmenu',e=>e.preventDefault());
 
 /* ---------- v2.13 手机端：虚拟摇杆 + 技能按钮（桌面不接入） ---------- */
-const touch={axisX:0,axisY:0,alt:0};
+const touch={axisX:0,axisY:0,alt:0,rollHeld:false};
 if(IS_TOUCH){
   document.body.classList.add('touch');
   const joy=document.getElementById('joy'),knob=document.getElementById('joyKnob');
@@ -466,9 +498,15 @@ if(IS_TOUCH){
       e.preventDefault();
       if(!game.started){game.started=true;return;}
       if(game.over){reset();return;}
-      // v2.14：手机只保留升/降/翻滚（技能全自动，无需 1/2/3/4 与自动开关）
-      if(act==='roll')startRoll();
+      /* v2.16：手机翻滚按钮支持「按住连续机动」——
+         touchstart 触发一次，touch.rollHeld 保持 true，
+         update() 里在 CD 转好时自动续接下一段（同桌面按住 J）。 */
+      if(act==='roll'){touch.rollHeld=true;startRoll();}
     },{passive:false});
+    if(act==='roll'){
+      const stopRoll=e=>{e.preventDefault();touch.rollHeld=false;};
+      b.addEventListener('touchend',stopRoll); b.addEventListener('touchcancel',stopRoll);
+    }
   }
   // 点画布开始 / 重来（桌面走 mousedown，手机走这里）
   canvas.addEventListener('touchstart',e=>{
@@ -1016,20 +1054,44 @@ function startDive(){
   if(!game.started||game.over||player.dive||player.qi<12)return;
   player.qi-=12; player.dive={t:0,startY:player.pos.y,phase:'down',hit:new Set()};
 }
-/* v2.14「剑舞·万象」御剑机动翻滚：四段战机机动的修仙化表达。
+/* v2.16「剑舞·万象」御剑机动翻滚：四段战机机动的修仙化表达。
    ① 起手大迎角：剑尖上扬、气机蓄势（视觉抬升）
    ② 横滚 360°：绕飞剑纵轴回转，剑光护体 → 翻滚期无敌
    ③ 桶滚螺旋：沿弧线突进 + 侧摆，剑气横扫路径敌人
    ④ 半筋斗收势：抬升抢高度，落地前回归设定高度
-   冷却 5s；不耗灵力（与俯冲区分），靠身法而非法术。 */
+   v2.16 数值：消耗 20 灵力 / 冷却 0.5 秒，且支持「连段」——
+   翻滚被建模为连段(chain)而非单次动作：
+   - chainT：连段累计翻滚时间（角度/速度/相位全部连续，不因续键而重置）
+   - pressT：最近一次按键时间；连段窗口内没有新按键 → 翻滚自动收势
+   - 段长 ROLL_DUR=1.05s 与连段窗口 ROLL_CHAIN_WINDOW=1.05s 一致：
+     按一次 J 恰好滚完整一段（1.05s）；想继续滚就在这一段内再按一次，
+     窗口被刷新、段数 +1，于是可以一直滚下去 —— 这就是「连续机动」。
+   高度收益改为按翻滚时长连续累计（ROLL_ALT_GAIN/ROLL_DUR 每秒），
+   滚满一段 ≈ +4 丈，与旧版"结束时给 +4"等价，但连段时更平滑。 */
 function startRoll(){
-  if(!game.started||game.over||player.roll||player.dive||player.cds.roll>0)return false;
+  if(!game.started||game.over||player.dive)return false;
+  if(player.cds.roll>0)return false;                       // 冷却中
+  if(player.qi<ROLL_QI_COST)return false;                  // 灵力不足（v2.16 新增门槛）
+  player.qi-=ROLL_QI_COST;
   player.cds.roll=ROLL_CD;
+  if(player.roll){
+    /* 连段：翻滚中再次按键。保留 chainT / ang / dash（位置与旋转完全连续），
+       只把 segT 归零并进入新一段，同时刷新连段窗口。 */
+    const r=player.roll;
+    r.pressT=game.time;
+    r.seg=(r.seg||1)+1;
+    r.segT=0;
+    r.hit=new Set();
+    fxRing(player.pos,'#8fe0cc',0.9,6,0.4,5);
+    burst(player.pos,10,'#ffe9a8',2.4);
+    return true;
+  }
   const f=facingVec(player.heading);
-  // 左右交替，连续翻滚不会总往同一侧偏，观感更像剑舞
+  // 左右交替：新连段起点取反方向，桶滚侧摆不会总往同一侧偏
   const dir=(player.rollDir||1); player.rollDir=-dir;
-  player.roll={t:0,sx:player.pos.x,sy:player.pos.y,sz:player.pos.z,
-               fx:f.x,fz:f.z,dir,hit:new Set()};
+  player.roll={chainT:0,segT:0,seg:1,pressT:game.time,
+               sx:player.pos.x,sy:player.pos.y,sz:player.pos.z,
+               fx:f.x,fz:f.z,dir,hit:new Set(),dash:0};
   fxRing(player.pos,'#8fe0cc',1.2,7,0.5,6);
   burst(player.pos,18,'#ffe9a8',3.0);
   return true;
@@ -1037,22 +1099,29 @@ function startRoll(){
 /* 翻滚推进：返回 true 表示本帧玩家位置由翻滚接管（跳过常规移动/高度保持）。 */
 function updateRoll(dt){
   const r=player.roll; if(!r)return false;
-  r.t+=dt;
-  const p=clamp(r.t/ROLL_DUR,0,1);
-  // 缓入缓出的 720° 滚转：起势慢 → 中段快 → 收势稳
-  const ease=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
-  r.ang=ease*Math.PI*4*r.dir;
-  // 轨迹：前段直冲（横滚），中段侧摆（桶滚），全程抬升（半筋斗）
-  const dash=ROLL_DASH*(1-Math.pow(1-p,2));
-  const spiral=Math.sin(p*Math.PI*2)*9*r.dir;
-  const lift=Math.sin(p*Math.PI)*13;
+  r.chainT+=dt; r.segT+=dt;
+  /* 旋转：连续角速度（段与段之间不重置角度），起手 0.25s 内加速到满速。
+     每段 1.05s 恰好一圈 720°（4π），与 v2.14 的"每段一次完整桶滚"一致。 */
+  const spinRamp=Math.min(1,r.chainT/0.25);
+  r.ang=(r.ang||0)+ (Math.PI*4/ROLL_DUR)*spinRamp*r.dir*dt;
+  /* 前突：速度在连段起点 0.35s 内爬到 ROLL_SPEED，之后保持 →
+     段与段之间速度连续，不会每段重新起步（这正是"连续机动"的手感关键）。 */
+  const ramp=Math.min(1,r.chainT/0.35);
+  r.dash=(r.dash||0)+ROLL_SPEED*ramp*dt;
+  // 桶滚侧摆（连续相位）+ 半筋斗抬升（每段一次起伏，恒为非负）
+  const weaveRamp=Math.min(1,r.chainT/0.25);
+  const spiral=9*weaveRamp*Math.sin(Math.PI*2*r.chainT/ROLL_DUR);
+  const lift=13*(1-Math.cos(Math.PI*2*r.chainT/ROLL_DUR))/2;
   // facingVec 的右向量 = (-fz, fx)
-  player.pos.x=r.sx+r.fx*dash-r.fz*spiral;
-  player.pos.z=r.sz+r.fz*dash+r.fx*spiral;
+  player.pos.x=r.sx+r.fx*r.dash-r.fz*spiral;
+  player.pos.z=r.sz+r.fz*r.dash+r.fx*spiral;
   player.pos.y=r.sy+lift;
+  /* v2.16：高度收益按翻滚时长连续累计（滚满一段 ≈ +4 丈），
+     连段时不再有"结束时突然跳 4 丈"的突兀感。 */
+  player.targetAlt=clamp(player.targetAlt+dt*(ROLL_ALT_GAIN/ROLL_DUR),ALT_MIN,ALT_MAX);
   // 剑光护体：全程短无敌（每帧续 80ms，覆盖敌方投射物命中判定）
   player.inv=Math.max(player.inv,0.08);
-  // 剑气横扫：路径附近敌人受伤，每个敌人本次翻滚只中一次
+  // 剑气横扫：路径附近敌人受伤，每个敌人每段只中一次
   for(const e of enemies){
     if(r.hit.has(e))continue;
     if(horizDist(e,player.pos)<(e.r+7)&&Math.abs(player.pos.y-(e.y+6))<20){
@@ -1066,10 +1135,11 @@ function updateRoll(dt){
       v:{x:(Math.random()-0.5)*8,y:(Math.random()-0.5)*6,z:(Math.random()-0.5)*8},
       life:0.35,color:'#ffe9a8',size:2.2,grav:0,drag:2});
   }
-  if(r.t>=ROLL_DUR){
+  /* 收势：连段窗口内没有新按键 → 翻滚结束，交还常规飞行。
+     窗口 = ROLL_CHAIN_WINDOW(1.05s) = 一段时长 ⇒ 单次按键恰好滚完整一段。 */
+  if(game.time-r.pressT>ROLL_CHAIN_WINDOW){
     player.roll=null;
-    // 半筋斗高度收益：设定高度小幅提升（抢高度优势），受 ALT_MAX 约束
-    player.targetAlt=clamp(player.targetAlt+4,ALT_MIN,ALT_MAX);
+    return true;
   }
   return true;
 }
@@ -1260,8 +1330,8 @@ function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
         killer:null,replay:null,lastReplay:null};
   player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
-          heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,lastHit:0,inCloud:false,cloudVapourDue:0,
-          cds:{sword:0,fire:0,ice:0,lightning:0},autoLast:0,auto:true,showVision:false,
+          heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,rollDir:1,lastHit:0,inCloud:false,cloudVapourDue:0,
+          cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
   enemies=[];bolts=[];beams=[];lightningZones=[];particles=[];dmgNums=[];
   for(let i=0;i<10;i++)spawnEnemy(false,{forward:false});
@@ -1315,6 +1385,20 @@ function updateCloudCutting(dt){
 /* ============================================================
  * v2.15 击杀回放（Kill Cam）：从法术激发到命中主角，镜头跟随法术
  * ============================================================ */
+/* v2.16：回放改为「子弹时间式慢加速」。
+   用户反馈"自动回放速度太快"——原来法术沿轨迹 0.9~1.6s 就掠完全程，
+   观众看不清"从激发到命中"的因果链。现在引入时间缩放曲线：
+   起步 0.18 倍速（法术激发几乎凝滞），在 KILL_CAM_RAMP 秒内平滑加速到 1.0 倍速
+   （法术加速冲向主角），命中后进入定格。
+   因为整个战场在回放期间是冻结的，所以"慢"体现在法术推进与镜头呼吸上；
+   配套视觉：青蓝色调 + 暗角 + 速度线 + 倍速读数 + 时间刻度尺。 */
+const KILL_CAM_SLOW_MIN=0.18;   // 起步倍速
+const KILL_CAM_RAMP=1.35;       // 加速到 1.0 倍速所需秒数
+/* 时间缩放曲线：smoothstep 从 KILL_CAM_SLOW_MIN 升到 1.0 */
+function killCamTimeScale(t){
+  const u=clamp(t/KILL_CAM_RAMP,0,1);
+  return KILL_CAM_SLOW_MIN+(1-KILL_CAM_SLOW_MIN)*(u*u*(3-2*u));
+}
 /* 回放相机：从弹丸侧后方跟随，注视点沿飞行方向前探；
    命中瞬间（最后 25%）把注视点平滑拉向主角，形成「直取要害」的镜头。 */
 function updateKillCam(dt){
@@ -1323,7 +1407,11 @@ function updateKillCam(dt){
   // 飞行时长：按轨迹点数映射到约 0.9~1.6s，避免点太少一闪而过
   const flyDur=clamp(path.length/60,0.9,1.6);
   rp.t+=dt;
-  const prog=clamp(rp.t/flyDur,0,1);
+  /* v2.16：慢加速。rp.shotT 是"弹道内部时间"，只按 timeScale 推进；
+     所以真实耗时 = flyDur / 平均倍速 ≈ 1.5~2.7s，观感从容许多。 */
+  rp.ts=killCamTimeScale(rp.t);
+  rp.shotT=(rp.shotT||0)+dt*rp.ts;
+  const prog=clamp(rp.shotT/flyDur,0,1);
   rp.prog=prog;
   const fi=prog*(n-1), i0=Math.floor(fi), i1=Math.min(n-1,i0+1), f=fi-i0;
   const cur=V.add(V.mul(path[i0],1-f),V.mul(path[i1],f));
@@ -1336,7 +1424,9 @@ function updateKillCam(dt){
   let right=V.norm(V.cross(dir,worldUp));
   if(!isFinite(right.x))right={x:1,y:0,z:0};
   const back=V.mul(dir,-22);
-  const side=V.mul(right,7);
+  /* v2.16：慢动作时相机做缓慢横移（呼吸感），加速后回归原位。 */
+  const breathe=Math.sin(rp.t*1.5)*7*(1-rp.ts);
+  const side=V.add(V.mul(right,7),V.mul(worldUp,breathe));
   const desired=V.add(cur,V.add(back,side)); desired.y+=9;
   const k=1-Math.exp(-6*dt);
   cam.pos.x=lerp(cam.pos.x,desired.x,k);
@@ -1357,9 +1447,45 @@ function updateKillCam(dt){
   if(prog>=1){rp.hold=(rp.hold||0)+dt;
     if(rp.hold>1.2){game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos};game.replay=null;}}
 }
+/* v2.16 慢动作视觉层：青蓝色调 + 径向速度线 + 暗角。
+   强度与"当前倍速"反相关：越慢 → 色调越浓、速度线越多，
+   随法术加速到 1.0 倍速而逐渐消退，形成"从凝滞到加速"的视觉叙事。 */
+function drawKillCamFx(){
+  const rp=game.replay; if(!rp)return;
+  const ts=rp.ts!==undefined?rp.ts:1;
+  const slow=clamp(1-ts,0,1);            // 0=正常速度 1=最慢
+  const cx=W/2, cy=H/2;
+  /* 径向速度线：从画面中心向外辐射，缓慢转动（子弹时间标志）。 */
+  const lineN=Math.round(10+slow*26);
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<lineN;i++){
+    const a=(i/lineN)*Math.PI*2+rp.t*0.22;
+    const r0=Math.min(W,H)*(0.34+((i*37)%17)/60);
+    const r1=r0+Math.min(W,H)*(0.10+slow*0.16);
+    ctx.strokeStyle=`rgba(150,215,255,${0.05+0.13*slow})`;
+    ctx.lineWidth=1.4;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0*0.62);
+    ctx.lineTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1*0.62);
+    ctx.stroke();
+  }
+  ctx.restore();
+  /* 青蓝色调：慢动作时整屏压一层冷色，强化"时间被拉长"的错觉。 */
+  ctx.fillStyle=`rgba(70,150,205,${0.05+0.09*slow})`;
+  ctx.fillRect(0,0,W,H);
+  /* 暗角：四周压黑，视线收拢到画面中心的法术。 */
+  const g=ctx.createRadialGradient(cx,cy,Math.min(W,H)*0.22,cx,cy,Math.max(W,H)*0.72);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,`rgba(4,10,18,${0.42+0.20*slow})`);
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+
 /* 回放中的幽灵弹丸渲染：沿轨迹绘制越肩视角下的法术本体 + 拖尾光带。 */
 function drawKillCamGhost(){
   const rp=game.replay; if(!rp||!rp.ghost)return;
+  const ts=rp.ts!==undefined?rp.ts:1;
+  const slow=clamp(1-ts,0,1);
   const path=rp.path, n=path.length;
   const fi=rp.prog*(n-1), i0=Math.floor(fi);
   // 拖尾：当前点之前 18 个轨迹点
@@ -1384,12 +1510,23 @@ function drawKillCamGhost(){
     g.addColorStop(1,'rgba(255,214,94,0)');
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(gp.x,gp.y,r*2.4,0,Math.PI*2);ctx.fill();
     ctx.fillStyle='#fff6d0';ctx.beginPath();ctx.arc(gp.x,gp.y,r*0.55,0,Math.PI*2);ctx.fill();
+    /* v2.16：青蓝描边环 —— 慢动作时法术外圈浮现冷色能量环，
+       倍速越高环越淡，让"子弹时间"有明确的视觉标识。 */
+    if(slow>0.02){
+      ctx.strokeStyle=`rgba(120,215,255,${0.55*slow})`;
+      ctx.lineWidth=1.6+2.2*slow;
+      ctx.beginPath();ctx.arc(gp.x,gp.y,r*(1.5+0.5*slow),0,Math.PI*2);ctx.stroke();
+      ctx.strokeStyle=`rgba(190,240,255,${0.35*slow})`;
+      ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(gp.x,gp.y,r*(2.2+0.7*slow),0,Math.PI*2);ctx.stroke();
+    }
   }
 }
 
-/* 回放 HUD：电影黑边 + 标题 + 凶手 + 阶段提示 + 进度条。 */
+/* 回放 HUD：电影黑边 + 标题 + 凶手 + 阶段提示 + 进度条 + 倍速读数。 */
 function drawKillCamOverlay(){
   const rp=game.replay; if(!rp)return;
+  const ts=rp.ts!==undefined?rp.ts:1;
   const barH=Math.max(28,H*0.075);
   ctx.fillStyle='rgba(10,16,20,0.82)';
   ctx.fillRect(0,0,W,barH);ctx.fillRect(0,H-barH,W,barH);
@@ -1407,6 +1544,25 @@ function drawKillCamOverlay(){
   // 进度条
   ctx.fillStyle='rgba(255,255,255,0.18)';ctx.fillRect(W*0.3,barH*0.86,W*0.4,3);
   ctx.fillStyle='#8fe0cc';ctx.fillRect(W*0.3,barH*0.86,W*0.4*clamp(rp.prog,0,1),3);
+  /* v2.16：倍速读数（左上）+ 时间刻度尺（右下）。
+     刻度尺用一条 0.18→1.0 的渐变条标出当前倍速位置，
+     观众能直接看到"时间正在加速"。 */
+  ctx.textAlign='left';
+  const small=Math.max(11,Math.floor(fs*0.62));
+  ctx.font=`${small}px "Microsoft YaHei"`;
+  ctx.fillStyle='rgba(150,215,255,0.95)';
+  ctx.fillText(L('killCamSpeed',ts.toFixed(2)),16,barH*0.66);
+  // 刻度尺
+  const gx=W-16-96, gy=H-barH*0.72, gw=96, gh=4;
+  const g2=ctx.createLinearGradient(gx,0,gx+gw,0);
+  g2.addColorStop(0,'#7fc4ff');g2.addColorStop(1,'#ffd45e');
+  ctx.fillStyle='rgba(255,255,255,0.16)';ctx.fillRect(gx,gy,gw,gh);
+  ctx.fillStyle=g2;ctx.fillRect(gx,gy,gw*clamp((ts-KILL_CAM_SLOW_MIN)/(1-KILL_CAM_SLOW_MIN),0,1),gh);
+  ctx.fillStyle='#ffd45e';
+  const mx=gx+gw*clamp((ts-KILL_CAM_SLOW_MIN)/(1-KILL_CAM_SLOW_MIN),0,1);
+  ctx.fillRect(mx-1,gy-3,2,gh+6);
+  ctx.fillStyle='rgba(200,215,230,0.8)';
+  ctx.fillText(L('killCamTimeAxis'),gx,gy+gh+small+2);
   ctx.textAlign='left';
 }
 
@@ -1418,8 +1574,18 @@ function update(dt){
   tickCds(player.cds,dt);
   const onSea=isSea(player.pos.x,player.pos.z);
   player.qi=clamp(player.qi+dt*pRegenQi(onSea),0,player.maxQi);
-  if(game.time-player.lastHit>3&&player.hp<player.maxHp){
-    player.hp=clamp(player.hp+dt*pRegenHp(),0,player.maxHp);
+  /* v2.16：气血恢复改为「随时生效」——去掉旧的 3 秒硬门槛，
+     只保留受击后 0.6 秒（=无敌帧）的短暂停顿。HUD 显示的速率
+     与此处 dt*pRegenHp() 完全一致，不再出现"写着在回血、实际没回"。 */
+  if(hpRegenActive()) player.hp=clamp(player.hp+dt*pRegenHp(),0,player.maxHp);
+
+  /* v2.16：按住 J = 持续机动（连段）。
+     keydown 里有 e.repeat 拦截，系统按键重复不会再次触发 startRoll；
+     但 keys['j'] 会保持 true，于是这里在 CD 转好时自动续接下一段。
+     玩家因此只需按住 J（或在手机上按住翻滚按钮），
+     就能一路滚下去，直到灵力耗尽 —— 这正是"只要法力够就可以连续机动"。 */
+  if((keys['j']||touch.rollHeld)&&player.cds.roll<=0&&player.qi>=ROLL_QI_COST){
+    startRoll();
   }
 
   /* v2.14：翻滚机动接管本帧的移动与高度（与普通飞行/俯冲互斥），
@@ -1576,7 +1742,8 @@ function hurtPlayer(d,opts={}){
     const src=opts.from||{ident:{skill:'unknown',caster:'enemy'}};
     game.killer=src.ident;
     if(src.path&&src.path.length>2){
-      const rp={t:0,path:src.path.slice(),ident:src.ident,
+      /* v2.16：回放增加子弹时间字段 shotT（弹道内部时间）与 ts（当前倍速）。 */
+      const rp={t:0,shotT:0,ts:KILL_CAM_SLOW_MIN,path:src.path.slice(),ident:src.ident,
                 casterPos:src.casterPos||src.path[0],duration:1.0,phase:'fly'};
       game.replay=rp;
       game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos};
@@ -2139,7 +2306,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.15',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.16',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -2152,11 +2319,17 @@ function drawHUD(){
   const ground=terrainH(player.pos.x,player.pos.z);
   ctx.fillText(L('altitude',Math.round(player.pos.y-Math.max(ground,0)),Math.round(player.targetAlt)),22,158);
   ctx.fillText(`${L('ground'+(ground<0?'Sea':'Land'))}   ${L('viewAngle')} ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   '+L('inCloud'):''}`,22,176);
-  const canRegen=game.time-player.lastHit>3;
-  if(!canRegen&&player.hp<player.maxHp){
-    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText(L('hpRegenHit'),22,194);
+  /* v2.16：气血提示改为「显示值 = 真实速率」。
+     - 受击后 0.6s 停顿期：显示剩余停顿秒数（不再是无信息的"受击中…"）
+     - 掉血中：显示真实回血速率 pRegenHp()（与 update() 里 dt*pRegenHp() 一致）
+     - 满血：也显示速率，让玩家随时知道自己的恢复能力 */
+  const graceLeft=Math.max(0,HP_REGEN_GRACE-hpRegenDelay());
+  if(graceLeft>0){
+    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText(L('hpRegenHit',graceLeft.toFixed(1)),22,194);
   }else if(player.hp<player.maxHp){
     ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(L('hpRegen',pRegenHp().toFixed(1)),22,194);
+  }else{
+    ctx.fillStyle='rgba(90,120,112,0.8)';ctx.fillText(L('hpRegenFull',pRegenHp().toFixed(1)),22,194);
   }
   /* v2.14：手机端只显示玩家还能操作的信息。
      技能行(1/2/3/4)、自动攻击/视野切换、相机档位在手机已无对应控件，
@@ -2177,10 +2350,24 @@ function drawHUD(){
     ctx.fillStyle='rgba(45,95,88,0.85)';
     ctx.fillText(L('autoDecision',player.autoChoice,player.lastCast),22,308);
   }
-  // v2.14：剑舞翻滚冷却状态；手机端因隐藏上述行而上移到 y=214
+  /* v2.16：剑舞状态行。改为显示「耗蓝 / CD / 连段数」，
+     灵力不足时明确提示（否则玩家只会觉得"按了没反应"）。 */
   const rollY=IS_TOUCH?214:326;
-  ctx.fillStyle=player.cds.roll>0?'rgba(150,86,120,0.9)':'rgba(120,80,175,0.95)';
-  ctx.fillText(player.cds.roll>0?L('rollCd',player.cds.roll.toFixed(1)):L('rollReady'),22,rollY);
+  const rollSeg=player.roll?(player.roll.seg||1):0;
+  let rollTxt,rollCol;
+  if(player.cds.roll>0){
+    rollTxt=L('rollCd',player.cds.roll.toFixed(1));
+    rollCol='rgba(150,86,120,0.9)';
+  }else if(player.qi<ROLL_QI_COST){
+    rollTxt=L('rollNoQi',ROLL_QI_COST);
+    rollCol='rgba(180,80,60,0.95)';
+  }else{
+    rollTxt=L('rollReady',ROLL_QI_COST);
+    rollCol='rgba(120,80,175,0.95)';
+  }
+  if(rollSeg>1) rollTxt+=`   ${L('rollCombo',rollSeg)}`;
+  ctx.fillStyle=rollCol;
+  ctx.fillText(rollTxt,22,rollY);
   // v2.7：相机档位 + 最近敌人方位提示（手机无相机切换键，隐藏档位）
   const camY=IS_TOUCH?232:344, nearY=IS_TOUCH?250:362;
   if(!IS_TOUCH){
@@ -2202,9 +2389,11 @@ function drawHUD(){
     ctx.moveTo(mouse.x+4,mouse.y);ctx.lineTo(mouse.x+12,mouse.y);ctx.stroke();
   }
   drawRadar();
-  // v2.14：手机翻滚按钮的冷却态（DOM 层，桌面不存在该按钮）
+  /* v2.16：手机翻滚按钮的冷却态。
+     注意：翻滚进行中不再算"不可用"——那是连段机制的一部分，
+     玩家要在翻滚中再按一次才能续接。 */
   const rb=document.getElementById('tbRoll');
-  if(rb){rb.classList.toggle('cool',player.cds.roll>0||!!player.roll);}
+  if(rb){rb.classList.toggle('cool',player.cds.roll>0||player.qi<ROLL_QI_COST);}
 }
 /* v2.7：最近敌人的相对方位（相对主角朝向），用于 HUD 文字提示。 */
 function nearestEnemyInfo(){
@@ -2291,7 +2480,7 @@ function render(){
   for(const e of sorted)drawEnemy(e);
   drawPlayer();
   drawClouds();
-  if(inReplay){drawKillCamGhost(); drawKillCamOverlay();}
+  if(inReplay){drawKillCamFx(); drawKillCamGhost(); drawKillCamOverlay();}
   else {drawProjectiles(); drawHUD(); drawOverlay();}
 }
 let last=performance.now();

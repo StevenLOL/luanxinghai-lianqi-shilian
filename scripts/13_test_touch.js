@@ -59,29 +59,41 @@ async function main() {
   const axis = await ev('({x:touch.axisX,y:touch.axisY})');
   ok('摇杆松手回中', Math.abs(axis.x) < 0.01 && Math.abs(axis.y) < 0.01, JSON.stringify(axis));
 
-  // 技能按钮：1 飞剑 (215,676)。手动施法需要目标，故 hook castManual 验证事件确实触发
-  await ev('window.__castCalls=0; const _cm=window.castManual; window.castManual=function(k){window.__castCalls++;return _cm(k)}; true');
-  await touch('touchStart', [{ x: 215, y: 676, id: 2 }]);
-  await touch('touchEnd', []);
-  await sleep(150);
-  const casts = await ev('window.__castCalls');
-  ok('技能按钮触发飞剑术', casts > 0, `castManual 调用 ${casts} 次`);
+  // v2.14 起手机端只剩「升 / 降 / 翻滚」三键（技能与自动攻击由系统接管），
+  // 因此这里不再断言技能按钮与自动开关，而是断言三键布局 + 按住翻滚连续机动。
+  const btns = await ev(`[...document.querySelectorAll('#tb button')].map(b=>{
+    const r=b.getBoundingClientRect();
+    return {act:b.dataset.act,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};
+  })`);
+  const acts = btns.map(b => b.act).sort().join(',');
+  ok('手机只保留升降+翻滚三键', acts === 'altDown,altUp,roll', `acts=[${btns.map(b => b.act).join(', ')}]`);
+  const rollBtn = btns.find(b => b.act === 'roll');
+  const altBtn = btns.find(b => b.act === 'altUp');
 
-  // 高度按钮：升 (281,736) 按住 0.6 秒
+  // 高度按钮：升 按住 0.6 秒
   const alt0 = await ev('player.targetAlt');
-  await touch('touchStart', [{ x: 281, y: 736, id: 3 }]);
+  await touch('touchStart', [{ x: altBtn.x, y: altBtn.y, id: 3 }]);
   await sleep(600);
   await touch('touchEnd', []);
   const alt1 = await ev('player.targetAlt');
   ok('升降按钮改变设定高度', alt1 > alt0 + 1, `${alt0.toFixed(1)} → ${alt1.toFixed(1)} 丈`);
 
-  // 自动斗法开关
-  const auto0 = await ev('player.auto');
-  await touch('touchStart', [{ x: 215, y: 796, id: 4 }]);   // 自动 (第一列第三行)
+  // v2.16：按住翻滚按钮 = 连续机动（连段窗口自动刷新）
+  await ev('player.roll=null; player.cds.roll=0; player.qi=200; player.maxQi=200; true');
+  await touch('touchStart', [{ x: rollBtn.x, y: rollBtn.y, id: 4 }]);
+  await sleep(1400);
+  const held = await ev('({seg:(player.roll&&player.roll.seg)||0,qi:player.qi})');
   await touch('touchEnd', []);
-  await sleep(120);
-  const auto1 = await ev('player.auto');
-  ok('自动斗法开关', auto0 !== auto1, `${auto0} → ${auto1}`);
+  ok('手机按住翻滚连续机动（≥3 段）', held.seg >= 3, `1.4s 内连段 ${held.seg} 段`);
+  ok('手机按住翻滚连续消耗灵力', held.qi < 190, `qi 200 → ${held.qi.toFixed(1)}`);
+
+  // v2.16：手机点画面不应误放技能（触摸会合成 mousedown）
+  await ev('window.__castCalls=0; player.roll=null; true');
+  await touch('touchStart', [{ x: 195, y: 300, id: 5 }]);
+  await touch('touchEnd', []);
+  await sleep(150);
+  const mobileCasts = await ev('window.__castCalls');
+  ok('手机点画面不误放技能（不合成鼠标施法）', mobileCasts === 0, `castManual 调用 ${mobileCasts} 次`);
 
   const errs = await ev('window.__testErrors||[]');
   console.log(`\n${results.filter(r => r.pass).length}/${results.length} 项通过`);
