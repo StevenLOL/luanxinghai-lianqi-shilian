@@ -241,7 +241,9 @@ const SEED = `(()=>{
   /* ---------- 15. 版本 ---------- */
   const ver = await ev(`(()=>{const s=[...document.querySelectorAll('script')].map(x=>x.textContent||'').join('');
     const i=s.indexOf("L('title')+"); return i<0?'?':(s.slice(i,i+60).match(/v2[.][0-9]+/)||['?'])[0]})()`);
-  ok('版本号已更新到 v2.20', ver === 'v2.20', `version=${ver}`);
+  /* 版本断言用数值比较，不写死具体版本 —— 否则每次升版都要改测试 */
+  const verNum = parseFloat(String(ver).replace('v', ''));
+  ok('版本号不低于 v2.20', Number.isFinite(verNum) && verNum >= 2.20, `version=${ver}`);
 
   ok('运行期零异常', exceptions.length === 0, `${exceptions.length} exceptions`);
 

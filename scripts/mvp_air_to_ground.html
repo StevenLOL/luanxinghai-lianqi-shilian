@@ -1651,7 +1651,9 @@ function updateKillCam(dt){
   cam.u=V.cross(cam.r,cam.f);
   rp.phase=prog>=1?'hold':'fly';
   if(prog>=1){rp.hold=(rp.hold||0)+dt;
-    if(rp.hold>1.2){game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos};game.replay=null;}}
+    if(rp.hold>1.2){game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos,
+                                     kind:rp.kind,powered:rp.powered,color:rp.color,
+                                     bphase:rp.bphase,bsize:rp.bsize};game.replay=null;}}
 }
 /* v2.16 慢动作视觉层：青蓝色调 + 径向速度线 + 暗角。
    强度与"当前倍速"反相关：越慢 → 色调越浓、速度线越多，
@@ -1687,7 +1689,32 @@ function drawKillCamFx(){
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
 }
 
-/* 回放中的幽灵弹丸渲染：沿轨迹绘制越肩视角下的法术本体 + 拖尾光带。 */
+/* v2.21：构造回放用的"伪弹丸"，字段对齐本体 bolt 结构，
+   让 drawBoltTrail / drawBolt 原样工作（本体以后加新法术，回放自动同步）。
+   sCap=8 封顶投影缩放：回放相机紧贴弹丸（z≈21），s=focal/z 可达 36，
+   不封顶的话火球半径 2.4*s 会到 86px（直径 172px）直接糊屏。 */
+function killCamFakeBolt(rp){
+  /* v2.21：空轨迹 / 无 ghost 的退化输入直接返回 null，
+     否则 path[0] 是 undefined 会让 V.sub 抛错。 */
+  if(!rp||!rp.path||!rp.path.length||!rp.ghost) return null;
+  const path=rp.path, n=path.length;
+  const fi=clamp(rp.prog||0,0,1)*(n-1), i0=Math.max(0,Math.min(n-1,Math.floor(fi)));
+  const pa=path[Math.max(0,i0-1)]||path[0], pb=path[Math.min(n-1,i0+2)]||path[n-1];
+  let dir=V.norm(V.sub(pb,pa));
+  if(!isFinite(dir.x)||!isFinite(dir.y)||!isFinite(dir.z))dir={x:0,y:0,z:-1};
+  const kind=rp.kind||'sword';
+  const spell=SPELLS[kind];
+  return {kind, pos:rp.ghost, v:dir, powered:rp.powered!==false,
+          color:rp.color||(spell&&spell.color)||'#ffd45e', phase:rp.bphase||0,
+          missile:false, missilePhase:'none', size:rp.bsize||1, sCap:8};
+}
+/* v2.21：回放中的法术本体 —— 直接复用本体的 drawBoltTrail / drawBolt。
+   旧版这里画的是一套写死的「金色光球 + 通用拖尾」，不管凶手是飞剑还是火球都长一样，
+   看不出因果。v2.21 改成用本体特效：
+     · 飞剑 → 导弹式飞剑外形 + 金色尾焰
+     · 火球 → 橙红径向渐变火球
+     · 冰剑 → 冰蓝四棱菱形
+   v2.16 的青蓝子弹时间环叠加在本体特效之上，作为慢动作标识保留。 */
 function drawKillCamGhost(){
   const rp=game.replay; if(!rp||!rp.ghost)return;
   const ts=rp.ts!==undefined?rp.ts:1;
@@ -1698,33 +1725,43 @@ function drawKillCamGhost(){
   const tail=[];
   for(let i=Math.max(0,i0-18);i<=i0;i++)tail.push(path[i]);
   tail.push(rp.ghost);
-  const pts=[];for(const q of tail){const p=project(q);if(p)pts.push(p);}
-  if(pts.length>1){
-    ctx.lineCap='round';
-    for(let i=1;i<pts.length;i++){
-      const a=pts[i-1],b=pts[i],t=i/pts.length;
-      ctx.strokeStyle=`rgba(255,214,94,${0.15+0.7*t})`;
-      ctx.lineWidth=Math.max(1.2,3.5*t*Math.min(2,b.s/10));
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
-    }
-  }
+  const fake=killCamFakeBolt(rp);
+  if(!fake)return;
+  fake.trail=tail;
+  ctx.save();
+  drawBoltTrail(fake);
+  drawBolt(fake);
+  ctx.restore();
+  /* v2.16：青蓝描边环 —— 慢动作时法术外圈浮现冷色能量环，
+     倍速越高环越淡，让"子弹时间"有明确的视觉标识。 */
   const gp=project(rp.ghost);
-  if(gp){
+  if(gp&&slow>0.02){
     const r=Math.max(6,9*Math.min(2,gp.s/10));
-    const g=ctx.createRadialGradient(gp.x,gp.y,0,gp.x,gp.y,r*2.4);
-    g.addColorStop(0,'rgba(255,246,208,1)');g.addColorStop(0.4,'rgba(255,214,94,0.8)');
-    g.addColorStop(1,'rgba(255,214,94,0)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(gp.x,gp.y,r*2.4,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#fff6d0';ctx.beginPath();ctx.arc(gp.x,gp.y,r*0.55,0,Math.PI*2);ctx.fill();
-    /* v2.16：青蓝描边环 —— 慢动作时法术外圈浮现冷色能量环，
-       倍速越高环越淡，让"子弹时间"有明确的视觉标识。 */
-    if(slow>0.02){
-      ctx.strokeStyle=`rgba(120,215,255,${0.55*slow})`;
-      ctx.lineWidth=1.6+2.2*slow;
-      ctx.beginPath();ctx.arc(gp.x,gp.y,r*(1.5+0.5*slow),0,Math.PI*2);ctx.stroke();
-      ctx.strokeStyle=`rgba(190,240,255,${0.35*slow})`;
-      ctx.lineWidth=1;
-      ctx.beginPath();ctx.arc(gp.x,gp.y,r*(2.2+0.7*slow),0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=`rgba(120,215,255,${0.55*slow})`;
+    ctx.lineWidth=1.6+2.2*slow;
+    ctx.beginPath();ctx.arc(gp.x,gp.y,r*(1.5+0.5*slow),0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=`rgba(190,240,255,${0.35*slow})`;
+    ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(gp.x,gp.y,r*(2.2+0.7*slow),0,Math.PI*2);ctx.stroke();
+  }
+  /* v2.21：命中定格时的爆点 —— 用法术自己的配色，
+     让「谁用什么打死了我」在最后一帧有明确落点。 */
+  if(rp.phase==='hold'){
+    const hp=project(player.pos);
+    if(hp){
+      const age=clamp((rp.hold||0)/0.45,0,1);
+      const rr=Math.max(10,26*age*Math.min(2,hp.s/10));
+      const g=ctx.createRadialGradient(hp.x,hp.y,0,hp.x,hp.y,rr);
+      /* 颜色必须是 #rrggbb 才能拼 8 位 hex；否则退回固定金色 */
+      const c=/^#[0-9a-fA-F]{6}$/.test(fake.color)?fake.color:'#ffd45e';
+      g.addColorStop(0,'rgba(255,255,255,0.85)');
+      g.addColorStop(0.35,`${c}cc`);
+      g.addColorStop(1,`${c}00`);
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(hp.x,hp.y,rr,0,Math.PI*2);ctx.fill();
+      /* 冲击环 */
+      ctx.strokeStyle=`rgba(255,255,255,${0.55*(1-age)})`;
+      ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.arc(hp.x,hp.y,rr*1.25,0,Math.PI*2);ctx.stroke();
     }
   }
 }
@@ -1940,10 +1977,15 @@ function update(dt){
   updateCamera(dt);
 }
 /* v2.15：从弹丸提取致命回放数据。ident 保留凶手身份，path 为完整轨迹，
-   casterPos 用轨迹起点（发射点）近似。 */
+   casterPos 用轨迹起点（发射点）近似。
+   v2.21：补齐法术外观参数（kind/powered/color/phase）——
+   回放要复用本体 drawBolt() 画真实法术（飞剑/火球/冰剑），
+   光有轨迹点是画不出"这是火球还是飞剑"的。 */
 function boltSource(b){
   return {ident:b.ident||{owner:b.owner,skill:b.kind,caster:b.owner==='player'?'player':'enemy'},
-          path:b.path, casterPos:b.path?b.path[0]:{...b.pos}};
+          path:b.path, casterPos:b.path?b.path[0]:{...b.pos},
+          kind:b.kind, powered:b.powered!==false, color:b.color,
+          phase:b.phase||0, size:b.size||1};
 }
 function hurtPlayer(d,opts={}){
   if(!opts.ignoreInv&&player.inv>0)return;
@@ -1965,11 +2007,17 @@ function hurtPlayer(d,opts={}){
     /* v2.17：战死即入榜（无门槛），记录本局全部战绩维度。 */
     try{ game.rankEntry=submitToBoard(); }catch(e){ game.rankEntry=null; }
     if(src.path&&src.path.length>2){
-      /* v2.16：回放增加子弹时间字段 shotT（弹道内部时间）与 ts（当前倍速）。 */
+      /* v2.16：回放增加子弹时间字段 shotT（弹道内部时间）与 ts（当前倍速）。
+         v2.21：带上法术类型与配色，回放时用本体特效画「真实的那个法术」。 */
       const rp={t:0,shotT:0,ts:KILL_CAM_SLOW_MIN,path:src.path.slice(),ident:src.ident,
-                casterPos:src.casterPos||src.path[0],duration:1.0,phase:'fly'};
+                casterPos:src.casterPos||src.path[0],duration:1.0,phase:'fly',
+                kind:src.kind||(src.ident&&src.ident.skill)||'sword',
+                powered:src.powered!==false, color:src.color||null,
+                bphase:src.phase||0, bsize:src.size||1};
       game.replay=rp;
-      game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos};
+      game.lastReplay={path:rp.path,ident:rp.ident,casterPos:rp.casterPos,
+                       kind:rp.kind,powered:rp.powered,color:rp.color,
+                       bphase:rp.bphase,bsize:rp.bsize};
     }
   }
 }
@@ -2378,10 +2426,15 @@ function drawBolt(b){
   const dir=V.norm(b.v);
   const tail=project(V.add(b.pos,V.mul(dir,-4)))||{x:p.x,y:p.y+8};
   const ang=Math.atan2(p.y-tail.y,p.x-tail.x);
+  /* v2.21：可选投影缩放上限。
+     回放相机紧跟弹丸（z≈21），投影缩放 s=focal/z 可达 36，
+     火球半径 2.4*s 会到 86px（直径 172px）直接糊屏。
+     正常游戏不传 sCap，行为完全不变；只有 kill cam 回放传 sCap 做尺寸封顶。 */
+  const ps=b.sCap?Math.min(p.s,b.sCap):p.s;
   ctx.save();
   ctx.globalAlpha=b.powered?1:0.55;
   if(b.kind==='fire'){
-    const r=Math.max(3,2.4*p.s);
+    const r=Math.max(3,2.4*ps);
     const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
     if(b.powered){
       g.addColorStop(0,'#fff3b0');g.addColorStop(0.35,'#ff9a4d');g.addColorStop(1,'rgba(190,50,20,0)');
@@ -2392,7 +2445,7 @@ function drawBolt(b){
     if(b.powered){ctx.fillStyle='#fff0b0';ctx.beginPath();ctx.arc(p.x,p.y,Math.max(1,r*0.32),0,Math.PI*2);ctx.fill();}
   }else if(b.kind==='ice'){
     ctx.translate(p.x,p.y);ctx.rotate(ang+Math.sin(game.time*9+b.phase)*0.25);
-    const L=Math.max(5,4.5*p.s),W=Math.max(2,1.4*p.s);
+    const L=Math.max(5,4.5*ps),W=Math.max(2,1.4*ps);
     ctx.beginPath();ctx.moveTo(L,0);ctx.lineTo(0,-W);ctx.lineTo(-L*0.5,0);ctx.lineTo(0,W);ctx.closePath();
     ctx.fillStyle=b.powered?'#d9f2ff':'#9aa8a2';ctx.fill();
     ctx.strokeStyle=b.powered?'#7fc7ff':'#7f8b88';ctx.lineWidth=1;ctx.stroke();
@@ -2402,7 +2455,7 @@ function drawBolt(b){
     ctx.translate(p.x,p.y);ctx.rotate(ang);
     // v2.11：飞剑体积缩小。近处 p.s=focal/z 会暴涨（z 小时的放大），
     // 用 sqrt 压缩 + 硬上限把弹体控制在可读尺寸，同时保留远近透视感。
-    const bs=Math.min(p.s,9);                  // 投影缩放上限，避免近景弹体爆炸
+    const bs=Math.min(ps,9);                  // 投影缩放上限，避免近景弹体爆炸
     const L=Math.max(8,4.6*Math.sqrt(bs)),W=Math.max(1.6,1.05*Math.sqrt(bs));
     const mPhase=b.missile?b.missilePhase:'none';
     const flame=b.powered?(mPhase==='dash'?2.5:(mPhase==='turn'?1.7:(mPhase==='eject'?0.9:1.0))):0;
@@ -2529,7 +2582,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.20',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.21',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
