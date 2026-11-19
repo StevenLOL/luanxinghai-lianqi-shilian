@@ -305,7 +305,8 @@ const I18N={
     lbStatScore:'积分', lbStatKills:'击杀', lbStatDealt:'造成伤害',
     lbStatTaken:'受到伤害', lbStatBoss:'击杀 BOSS', lbStatTime:'存活', lbStatRealm:'境界',
     lbNewRecord:'★ 新纪录',
-    lbSec:'秒', lbLv:'练气 {0} 层'
+    lbSec:'秒', lbLv:'练气 {0} 层',
+    lbNotRanked:'本局未进前 {0} 名（战绩已记录）'
   },
   en:{
     title:'Chaos Sea · Qi Refining Trial', hp:'HP', qi:'Qi',
@@ -348,7 +349,8 @@ const I18N={
     lbStatScore:'Score', lbStatKills:'Kills', lbStatDealt:'Dealt',
     lbStatTaken:'Taken', lbStatBoss:'Bosses', lbStatTime:'Alive', lbStatRealm:'Realm',
     lbNewRecord:'★ NEW RECORD',
-    lbSec:'s', lbLv:'Qi Refining {0}'
+    lbSec:'s', lbLv:'Qi Refining {0}',
+    lbNotRanked:'Not in top {0} this run (score recorded)'
   }
 };
 function camModeName(){ return UI_LANG==='en'?
@@ -1383,6 +1385,7 @@ function fxGuidanceLost(pos){
 const LB_KEY='lxh_lianqi_lb_v1';
 const LB_NAME_KEY='lxh_dao_no_v1';
 const LB_MAX=20;                 // 榜单最多保留 20 条
+const LB_NAME_MAX=24;            // 道号最大长度（超出截断，防止超长串撑爆布局）
 
 /* 自动生成道号：形容词 + 身份 + 两位十六进制，保证同机可辨识又不重名。 */
 const LB_PREFIX_ZH=['无名','孤剑','青冥','寒霜','玄铁','踏雪','流光','断岳','霜刃','沧溟'];
@@ -1396,32 +1399,56 @@ function genDaoName(){
   const hex=Math.floor(Math.random()*0x10000).toString(16).padStart(4,'0');
   return p+t+' '+hex;
 }
-/* 道号读取：已存则复用（玩家改名入口暂不做，保持 MVP 最小） */
+/* 道号读取：已存则复用（玩家改名入口暂不做，保持 MVP 最小）
+   v2.19：读出后必须校验是「非空字符串且长度受限」，否则丢弃并重新生成。
+   否则 localStorage 被写入对象/超长串时，会把 "{"evil":1}" 这种字符串当成道号显示。 */
 function daoName(){
   let n=null;
   try{ n=localStorage.getItem(LB_NAME_KEY); }catch(e){}
-  if(!n){ n=genDaoName();
+  if(typeof n!=='string'||!n.trim()||n.length>LB_NAME_MAX){
+    n=genDaoName();
     try{ localStorage.setItem(LB_NAME_KEY,n); }catch(e){}   // 隐私模式下写入会失败，降级为本次会话有效
   }
-  return n;
+  return n.slice(0,LB_NAME_MAX);
 }
 /* 读取榜单；localStorage 不可用（隐私模式/iframe）时退化为内存榜，功能不崩 */
+/* v2.19 输入加固：localStorage 是不可信输入（用户可手改 / 其他脚本可写 / 旧版本残留脏数据）。
+   只接受「全部字段为有限数值 + 道号为受限长度字符串」的记录，其余整条丢弃。
+   特别注意 NaN / Infinity：typeof NaN==='number' 为 true，若不拦会污染排序
+   （比较结果恒为 false，排序退化为不稳定）。 */
+const LB_NUM_FIELDS=['score','kills','dmgDealt','dmgTaken','bossKills','time','realm','ts'];
+function sanitizeBoardRow(x){
+  if(!x||typeof x!=='object')return null;
+  // 道号：必须是字符串且长度受限；非字符串（如对象/数组）直接丢弃该条
+  if(typeof x.name!=='string')return null;
+  const row={name:x.name.slice(0,LB_NAME_MAX)};
+  // 所有数值字段必须是有限数（排除 NaN / Infinity / 非数字）
+  for(const k of LB_NUM_FIELDS){
+    const v=x[k];
+    if(typeof v!=='number'||!Number.isFinite(v))return null;
+    row[k]=v;
+  }
+  return row;
+}
 function loadBoard(){
   try{
     const raw=localStorage.getItem(LB_KEY);
     if(!raw)return [];
     const arr=JSON.parse(raw);
-    return Array.isArray(arr)?arr.filter(x=>x&&typeof x.score==='number'):[];
+    if(!Array.isArray(arr))return [];
+    return arr.map(sanitizeBoardRow).filter(Boolean);
   }catch(e){ return loadBoard._mem||(loadBoard._mem=[]); }
 }
 function saveBoard(list){
   try{ localStorage.setItem(LB_KEY,JSON.stringify(list)); }
   catch(e){ loadBoard._mem=list; }
 }
-/* 排序：积分优先，同分比击杀数，再比存活时间。降序。 */
+/* 排序：积分优先，同分比击杀数，再比存活时间。降序。
+   用 (b-a) 数值差而非 || 链，保证 NaN 不可能进入（loadBoard 已拦），
+   同时加 ts 兜底比较，让排序在完全同分时仍有确定顺序（避免引擎排序不稳定）。 */
 function boardSort(list){
   return list.slice().sort((a,b)=>
-    (b.score-a.score)||(b.kills-a.kills)||(b.time-a.time));
+    (b.score-a.score)||(b.kills-a.kills)||(b.time-a.time)||(b.ts-a.ts));
 }
 /* 战死入榜：返回 {entry, rank, list, isNewRecord} */
 function submitToBoard(){
@@ -1436,10 +1463,14 @@ function submitToBoard(){
   };
   const prev=loadBoard();
   const prevBest=prev.length?boardSort(prev)[0].score:0;
-  const list=boardSort(prev.concat([entry])).slice(0,LB_MAX);
+  /* 名次计算：在「含本局记录的完整排序」里找真实位置，
+     而不是先截断再 findIndex —— 否则榜单已满 20 条时本局被截断，
+     findIndex 返回 -1，+1 后得到「第 0 名」这个无效名次。 */
+  const full=boardSort(prev.concat([entry]));
+  const rank=full.findIndex(x=>x.ts===entry.ts&&x.name===entry.name)+1;
+  const list=full.slice(0,LB_MAX);
   saveBoard(list);
-  const rank=list.findIndex(x=>x.ts===entry.ts&&x.name===entry.name)+1;
-  return {entry,rank,list,isNewRecord:entry.score>prevBest};
+  return {entry,rank,list,isNewRecord:entry.score>prevBest,overflowed:rank>LB_MAX};
 }
 
 /* v2.17：排行榜开关。boardOpen=true 时覆盖层显示，游戏中会暂停推进。 */
@@ -2449,7 +2480,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.18',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.19',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -2648,9 +2679,14 @@ function drawBoard(){
   if(game.rankEntry){
     const r=game.rankEntry;
     ctx.textAlign='center';
-    ctx.fillStyle=r.isNewRecord?'#ffd45e':'#8fe0cc';
+    /* v2.19：名次超出榜单容量（>20）时，本局记录被截断未上榜，
+       不能再显示成「第 N 名」误导玩家，应明确告知。 */
+    const overflow=r.rank>LB_MAX;
+    ctx.fillStyle=overflow?'rgba(200,210,205,0.85)':(r.isNewRecord?'#ffd45e':'#8fe0cc');
     ctx.font='bold 14px "Microsoft YaHei"';
-    const rankTxt=L('lbYourRank',r.rank)+(r.isNewRecord?'  '+L('lbNewRecord'):'');
+    const rankTxt=overflow
+      ? L('lbNotRanked',LB_MAX)
+      : L('lbYourRank',r.rank)+(r.isNewRecord?'  '+L('lbNewRecord'):'');
     ctx.fillText(rankTxt,W/2,y0+panelH-34);
     ctx.textAlign='left';
   }
@@ -2702,10 +2738,14 @@ function drawOverlay(){
     }
     ctx.fillStyle='#8fe0cc';
     ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点画面重来':'Tap to restart'):L('deadRestart'),W/2,H/2+70);
-    /* v2.17：角色道消后直接展示排行榜（L 键可再唤出/关闭） */
+    /* v2.17：角色道消后直接展示排行榜（L 键可再唤出/关闭）
+       v2.19：名次超出前 20 名时显示「未进前 N 名」而非「第 N 名」 */
     if(game.rankEntry){
-      ctx.fillStyle='#ffd45e';ctx.font='bold 14px "Microsoft YaHei"';
-      ctx.fillText(L('lbTitle')+' · '+L('lbYourRank',game.rankEntry.rank),W/2,H/2+98);
+      const overflow=game.rankEntry.rank>LB_MAX;
+      ctx.fillStyle=overflow?'rgba(200,210,205,0.85)':'#ffd45e';
+      ctx.font='bold 14px "Microsoft YaHei"';
+      ctx.fillText(L('lbTitle')+' · '+(overflow?L('lbNotRanked',LB_MAX):L('lbYourRank',game.rankEntry.rank)),
+                   W/2,H/2+98);
     }
     if(game.lastReplay){   // 有回放可重看
       ctx.fillStyle='#ffd45e';ctx.font='14px "Microsoft YaHei"';
