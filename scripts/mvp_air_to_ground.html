@@ -263,7 +263,7 @@ const I18N={
     realmFull:'练气 12 层 · 圆满', realm:'练气 {0} 层 · 经验 {1}/{2}',
     kills:'击杀 {0}   得分 {1}', altitude:'高度 {0} 丈（设定 {1}）',
     groundSea:'海洋（无妖兽，灵力快充）', groundLand:'陆地', viewAngle:'视角', inCloud:'穿云中',
-    hpRegenHit:'气血回复：受击后停顿 {0}s', hpRegen:'气血回复中 +{0}/秒', hpRegenFull:'气血已满（回复速率 +{0}/秒）',
+    hpRegen:'气血回复中 +{0}/秒', hpRegenFull:'气血已满（回复速率 +{0}/秒）',
     autoOn:'自动攻击 开 (F)', autoOff:'自动攻击 关 (F)', visionOn:'视野 显示 (V)', visionOff:'视野 隐藏 (V)',
     ready:'就绪', spellFire:'火球', spellSword:'飞剑', spellIce:'冰剑', spellLightning:'雷法',
     autoLock:'自动锁定', autoDecision:'自动决策：{0}   上次：{1}', camera:'相机 {0} (B)',
@@ -275,11 +275,11 @@ const I18N={
     dirFront:'正前方', dirRightFront:'右前方', dirLeftFront:'左前方', dirRight:'正右方',
     dirLeft:'正左方', dirRightBack:'右后方', dirLeftBack:'左后方', dirBack:'正后方',
     introSub:'视野内自动选最优法术，山海之间御剑凌空',
-    introKeys:'1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角',
+    introKeys:'1 飞剑术 · 2 火球 · 3 冰剑术 · 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · L 排行榜',
     introRoll:'J 剑舞·万象翻滚（无敌规避 + 剑气横扫，20 灵力 / 0.5 秒冷却，可连段）',
     introSea:'飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',
     introStart:'点击开始', dead:'道消', deadRestart:'按 R 或点击 重来',
-    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · R 重来',
+    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · L 排行榜 · R 重来',
     rollReady:'剑舞翻滚 就绪 (J) · 耗 {0} 灵力', rollCd:'剑舞翻滚 CD {0}s', rollName:'剑舞·万象',
     rollNoQi:'灵力不足（需 {0}）', rollCombo:'连段 {0}',
     unknownFoe:'不明敌人', killedBy:'被 {0} 的「{1}」击败',
@@ -287,14 +287,26 @@ const I18N={
     killCamHit:'命中', killCamSkip:'点击 / 按任意键 跳过回放',
     killCamSpeed:'时缓 ×{0}', killCamTimeAxis:'时间流速',
     deadBy:'{0}', deadViewReplay:'按空格 重看击杀回放',
-    loading:'山海素材载入中…'
+    loading:'山海素材载入中…',
+    /* v2.17：排行榜 */
+    lbTitle:'练气期大能榜', lbOpen:'排行榜 (L)', lbClose:'关闭排行榜 (L)',
+    lbHint:'按 L 随时查看排行榜',
+    lbColRank:'名次', lbColName:'道号', lbColScore:'积分', lbColKills:'击杀',
+    lbColDealt:'造成伤害', lbColTaken:'受到伤害', lbColBoss:'斩 BOSS', lbColTime:'存活',
+    lbEmpty:'尚无记录 —— 战死即可上榜',
+    lbYourRank:'本局名次：第 {0} 名',
+    lbDeathStats:'本局战绩',
+    lbStatScore:'积分', lbStatKills:'击杀', lbStatDealt:'造成伤害',
+    lbStatTaken:'受到伤害', lbStatBoss:'击杀 BOSS', lbStatTime:'存活', lbStatRealm:'境界',
+    lbNewRecord:'★ 新纪录',
+    lbSec:'秒', lbLv:'练气 {0} 层'
   },
   en:{
     title:'Chaos Sea · Qi Refining Trial', hp:'HP', qi:'Qi',
     realmFull:'Qi Refining XII · Perfect', realm:'Qi Refining {0} · EXP {1}/{2}',
     kills:'Kills {0}   Score {1}', altitude:'Altitude {0} zhang (set {1})',
     groundSea:'Ocean (no beasts, fast Qi recovery)', groundLand:'Land', viewAngle:'View', inCloud:'In cloud',
-    hpRegenHit:'HP recovery: paused {0}s after hit', hpRegen:'HP recovering +{0}/s', hpRegenFull:'HP full (regen rate +{0}/s)',
+    hpRegen:'HP recovering +{0}/s', hpRegenFull:'HP full (regen rate +{0}/s)',
     autoOn:'Auto-cast ON (F)', autoOff:'Auto-cast OFF (F)', visionOn:'Vision ON (V)', visionOff:'Vision OFF (V)',
     ready:'READY', spellFire:'Fireball', spellSword:'Sword', spellIce:'Ice Sword', spellLightning:'Thunder',
     autoLock:'AUTO-LOCK', autoDecision:'AI choice: {0}   Last: {1}', camera:'Camera {0} (B)',
@@ -306,11 +318,11 @@ const I18N={
     dirFront:'ahead', dirRightFront:'front-right', dirLeftFront:'front-left', dirRight:'right',
     dirLeft:'left', dirRightBack:'rear-right', dirLeftBack:'rear-left', dirBack:'behind',
     introSub:'Auto-selects the best spell in sight; fly free between sea and mountain',
-    introKeys:'1 Sword · 2 Fireball · 3 Ice Sword · 4 Thunder · F Auto · V Vision · Z/X/C Camera',
+    introKeys:'1 Sword · 2 Fireball · 3 Ice Sword · 4 Thunder · F Auto · V Vision · Z/X/C Camera · L Leaderboard',
     introRoll:'J Sword Dance roll (invulnerable dodge + sword-energy sweep, 20 Qi / 0.5s CD, chainable)',
     introSea:'Fly over the ocean to dodge beasts and recover Qi fast; kill 5 to summon the Qilin',
     introStart:'Click to start', dead:'Fallen', deadRestart:'Press R or click to restart',
-    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · R Restart',
+    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · L Leaderboard · R Restart',
     rollReady:'Sword Dance READY (J) · {0} Qi', rollCd:'Sword Dance CD {0}s', rollName:'Sword Dance',
     rollNoQi:'Not enough Qi (need {0})', rollCombo:'Combo {0}',
     unknownFoe:'Unknown foe', killedBy:'Slain by {0}\'s {1}',
@@ -318,7 +330,19 @@ const I18N={
     killCamHit:'IMPACT', killCamSkip:'Click / press any key to skip',
     killCamSpeed:'SLOW ×{0}', killCamTimeAxis:'Time flow',
     deadBy:'{0}', deadViewReplay:'Press Space to replay the kill',
-    loading:'Loading mountain & sea assets…'
+    loading:'Loading mountain & sea assets…',
+    /* v2.17：排行榜 */
+    lbTitle:'Qi Refining Masters', lbOpen:'Leaderboard (L)', lbClose:'Close leaderboard (L)',
+    lbHint:'Press L anytime for the leaderboard',
+    lbColRank:'#', lbColName:'Name', lbColScore:'Score', lbColKills:'Kills',
+    lbColDealt:'Dealt', lbColTaken:'Taken', lbColBoss:'Boss', lbColTime:'Alive',
+    lbEmpty:'No records yet — die to get on the board',
+    lbYourRank:'Your rank: #{0}',
+    lbDeathStats:'This Run',
+    lbStatScore:'Score', lbStatKills:'Kills', lbStatDealt:'Dealt',
+    lbStatTaken:'Taken', lbStatBoss:'Bosses', lbStatTime:'Alive', lbStatRealm:'Realm',
+    lbNewRecord:'★ NEW RECORD',
+    lbSec:'s', lbLv:'Qi Refining {0}'
   }
 };
 function camModeName(){ return UI_LANG==='en'?
@@ -342,7 +366,9 @@ function spellName(key){ return (SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh)[k
 })();
 let game={started:false,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
           // v2.15：击杀回放状态。killer=来源信息；replay=回放播放进度；none 表示无回放
-          killer:null,replay:null,lastReplay:null};
+          killer:null,replay:null,lastReplay:null,
+          // v2.17：战斗统计（排行榜维度）。dmgDealt=造成伤害，dmgTaken=受到伤害，bossKills=击杀 Boss 数
+          dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null};
 let player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
@@ -365,17 +391,16 @@ function powerRange(key,ownerKey){
   const S=SPELLS[key]; if(!S)return 0;
   return ownerKey==='player'?S.powerRange+LV_GROW.range*pBonus():S.powerRange;
 }
-/* v2.16 气血恢复：改为「随时生效」。
-   旧实现有 game.time-player.lastHit>3 的三秒硬门槛，受击后完全不回血；
-   且基础 2.2/秒 ≈ 血条 3.7px/秒，肉眼看不出在恢复，用户反馈"感觉不对"。
-   现在：基础速率提高到 5.0/秒（可感知），只在受击后的短暂无敌窗内暂停（0.6s），
-   HUD 显示的数值与实际 dt*rate 严格一致。 */
-const HP_REGEN_GRACE = 0.6;                     // 受击后暂停回血的秒数（= 无敌帧时长）
+/* v2.17 气血恢复：完全无条件持续回复。
+   v2.16 还有「受击后 0.6 秒停顿」，用户明确要求「不管是否被攻击命中都一直回复」，
+   所以这里彻底去掉停顿：只要血没满就每帧回复，不看 lastHit。
+   平衡性由「基础速率 5.0/秒」保证 —— 敌人一次近战 10~18 伤害，
+   而回复速率 5.0/秒，连续被打仍然会掉血致死，只是不再有「被打断回复」的雪上加霜。
+   HUD 显示的数值与实际 dt*rate 严格一致（逐帧实测校验）。 */
 function pRegenHp(){ return 5.0+LV_GROW.hpRegen*pBonus(); }
 function pRegenQi(isSea){ return (isSea?11:7)+LV_GROW.qiRegen*pBonus(); }
-/* 距上次受击的秒数；>= HP_REGEN_GRACE 才回血（即"随时生效"，仅受击瞬间短暂停顿）。 */
-function hpRegenDelay(){ return Math.max(0,game.time-player.lastHit); }
-function hpRegenActive(){ return hpRegenDelay()>=HP_REGEN_GRACE&&player.hp<player.maxHp; }
+/* v2.17：不再判断受击时间，只看是否已满血。 */
+function hpRegenActive(){ return player.hp<player.maxHp; }
 /* 击杀获得经验；可连升多级，升级补满当期新增的 hp/qi 并触发金光特效。 */
 function addExp(amount){
   if(pLevel()>=LEVEL_MAX){player.exp=0;return 0;}   // 满级后经验始终清零
@@ -426,6 +451,8 @@ function initClouds(){
 const keys={}, mouse={x:W/2,y:H/2};
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase(); keys[k]=true;
+  // v2.17：L = 排行榜（随时可看，不必等死）。原先 L 是雷法别名，现改派给排行榜；雷法仍是 4 键。
+  if(k==='l'&&!e.repeat){ toggleBoard(); e.preventDefault(); return; }
   // v2.15：回放期间任意键跳过；死亡界面空格可重看最后一次击杀
   if(game.replay){game.replay=null;e.preventDefault();return;}
   if(game.over){
@@ -437,7 +464,7 @@ window.addEventListener('keydown',e=>{
   if(k==='1')castManual('sword');
   if(k==='2')castManual('fire');
   if(k==='3')castManual('ice');
-  if(k==='4'||k==='l')castLightning();          // v2.7：雷法自动选敌自动释放
+  if(k==='4')castLightning();          // v2.7：雷法自动选敌自动释放
   if(k==='j')startRoll();                     // v2.16：J = 剑舞·万象翻滚（20 灵力 / 0.5s CD，可连段）
   if(k==='k')castManual('fire');              // 火球备用键
   if(k==='z')cam.pitchIdx=0; if(k==='x')cam.pitchIdx=1; if(k==='c')cam.pitchIdx=2;
@@ -1232,10 +1259,14 @@ function recycleStragglers(){
 function hurtEnemy(e,dmg){
   if(e.hp<=0)return;
   e.hp-=dmg;e.hurt=0.18;
+  /* v2.17：战斗统计埋点 —— 造成伤害累计（含溢出伤害，按实际扣血计） */
+  game.dmgDealt+=Math.min(dmg,Math.max(0,e.hp+dmg));
   dmgNums.push({p:{x:e.x,y:e.y+11,z:e.z},txt:Math.round(dmg),life:0.9,color:'#ffe08a'});
   burst({x:e.x,y:e.y+4,z:e.z},6,'#c8503c',1.3);
   if(e.hp<=0){
     game.score+=e.type==='boss'?100:10; game.kills++;
+    /* v2.17：统计 Boss 击杀数（排行榜维度之一） */
+    if(e.type==='boss')game.bossKills++;
     // v2.8：击杀经验；可能触发连升，升级特效在 addExp 内产生。
     const lvUps=addExp(EXP_KILL[e.type]||EXP_KILL.beast);
     if(lvUps>0)player.lastCast=L('breakthrough',pLevel());
@@ -1329,10 +1360,92 @@ function fxGuidanceLost(pos){
   }
 }
 
+/* ============================================================
+ * v2.17 练气期大能排行榜
+ *
+ * 需求：战死后展示排行榜，记录击杀积分；维度含击杀数量、造成伤害、
+ *      受到伤害、击杀 BOSS。同时提供 L 键随时查看（不必等死）。
+ *
+ * 设计决定（与用户确认）：
+ *   - 数据存在本机 localStorage，跨局累积（换设备/清缓存会丢）
+ *   - 战死即入榜，不设门槛，保证正反馈
+ *   - 道号自动生成（用户确认），首次游玩生成后固定复用
+ *   - L 键从「雷法别名」改为「排行榜」——雷法仍是 4 键，习惯不变
+ * ============================================================ */
+const LB_KEY='lxh_lianqi_lb_v1';
+const LB_NAME_KEY='lxh_dao_no_v1';
+const LB_MAX=20;                 // 榜单最多保留 20 条
+
+/* 自动生成道号：形容词 + 身份 + 两位十六进制，保证同机可辨识又不重名。 */
+const LB_PREFIX_ZH=['无名','孤剑','青冥','寒霜','玄铁','踏雪','流光','断岳','霜刃','沧溟'];
+const LB_TITLE_ZH=['剑修','散人','游侠','客','道人'];
+const LB_PREFIX_EN=['Nameless','Lonely','Frost','Iron','Dawn','Storm','Silent','Crimson'];
+const LB_TITLE_EN=['Sword','Blade','Wanderer','Adept','Reaper'];
+function genDaoName(){
+  const zh=UI_LANG==='zh';
+  const p=(zh?LB_PREFIX_ZH:LB_PREFIX_EN)[Math.floor(Math.random()*(zh?LB_PREFIX_ZH:LB_PREFIX_EN).length)];
+  const t=(zh?LB_TITLE_ZH:LB_TITLE_EN)[Math.floor(Math.random()*(zh?LB_TITLE_ZH:LB_TITLE_EN).length)];
+  const hex=Math.floor(Math.random()*0x10000).toString(16).padStart(4,'0');
+  return p+t+' '+hex;
+}
+/* 道号读取：已存则复用（玩家改名入口暂不做，保持 MVP 最小） */
+function daoName(){
+  let n=null;
+  try{ n=localStorage.getItem(LB_NAME_KEY); }catch(e){}
+  if(!n){ n=genDaoName();
+    try{ localStorage.setItem(LB_NAME_KEY,n); }catch(e){}   // 隐私模式下写入会失败，降级为本次会话有效
+  }
+  return n;
+}
+/* 读取榜单；localStorage 不可用（隐私模式/iframe）时退化为内存榜，功能不崩 */
+function loadBoard(){
+  try{
+    const raw=localStorage.getItem(LB_KEY);
+    if(!raw)return [];
+    const arr=JSON.parse(raw);
+    return Array.isArray(arr)?arr.filter(x=>x&&typeof x.score==='number'):[];
+  }catch(e){ return loadBoard._mem||(loadBoard._mem=[]); }
+}
+function saveBoard(list){
+  try{ localStorage.setItem(LB_KEY,JSON.stringify(list)); }
+  catch(e){ loadBoard._mem=list; }
+}
+/* 排序：积分优先，同分比击杀数，再比存活时间。降序。 */
+function boardSort(list){
+  return list.slice().sort((a,b)=>
+    (b.score-a.score)||(b.kills-a.kills)||(b.time-a.time));
+}
+/* 战死入榜：返回 {entry, rank, list, isNewRecord} */
+function submitToBoard(){
+  const entry={
+    name:daoName(),
+    score:game.score, kills:game.kills,
+    dmgDealt:Math.round(game.dmgDealt), dmgTaken:Math.round(game.dmgTaken),
+    bossKills:game.bossKills,
+    time:Math.round(game.time*10)/10,
+    realm:pLevel(),
+    ts:Date.now()
+  };
+  const prev=loadBoard();
+  const prevBest=prev.length?boardSort(prev)[0].score:0;
+  const list=boardSort(prev.concat([entry])).slice(0,LB_MAX);
+  saveBoard(list);
+  const rank=list.findIndex(x=>x.ts===entry.ts&&x.name===entry.name)+1;
+  return {entry,rank,list,isNewRecord:entry.score>prevBest};
+}
+
+/* v2.17：排行榜开关。boardOpen=true 时覆盖层显示，游戏中会暂停推进。 */
+let boardOpen=false;
+function toggleBoard(){
+  boardOpen=!boardOpen;
+  player.lastCast=boardOpen?L('lbOpen'):L('lbClose');
+}
+
 /* ---------- 重置 ---------- */
 function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,bossSpawned:false,
-        killer:null,replay:null,lastReplay:null};
+        killer:null,replay:null,lastReplay:null,
+        dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null};
   player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,rollDir:1,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
@@ -1573,14 +1686,15 @@ function drawKillCamOverlay(){
 /* ---------- 更新 ---------- */
 function update(dt){
   if(!game.started||game.over)return;
+  /* v2.17：排行榜打开时暂停推进，让玩家安心看榜（死亡界面不受影响） */
+  if(boardOpen)return;
   game.time+=dt; game.flash=Math.max(0,game.flash-dt*2.5);
   player.inv=Math.max(0,player.inv-dt);
   tickCds(player.cds,dt);
   const onSea=isSea(player.pos.x,player.pos.z);
   player.qi=clamp(player.qi+dt*pRegenQi(onSea),0,player.maxQi);
-  /* v2.16：气血恢复改为「随时生效」——去掉旧的 3 秒硬门槛，
-     只保留受击后 0.6 秒（=无敌帧）的短暂停顿。HUD 显示的速率
-     与此处 dt*pRegenHp() 完全一致，不再出现"写着在回血、实际没回"。 */
+  /* v2.17：气血无条件持续回复——不再判断 lastHit，受击期间也在回。
+     HUD 显示的速率与此处的 dt*pRegenHp() 完全一致。 */
   if(hpRegenActive()) player.hp=clamp(player.hp+dt*pRegenHp(),0,player.maxHp);
 
   /* v2.16：按住 J = 持续机动（连段）。
@@ -1733,6 +1847,8 @@ function boltSource(b){
 function hurtPlayer(d,opts={}){
   if(!opts.ignoreInv&&player.inv>0)return;
   player.hp-=d;
+  /* v2.17：战斗统计埋点 —— 受到伤害累计 */
+  game.dmgTaken+=d;
   // v2.11：主角受伤飘红色掉血字（复用 dmgNums 世界坐标飘字系统）
   dmgNums.push({p:{x:player.pos.x,y:player.pos.y+6,z:player.pos.z},
                 txt:'-'+Math.round(d),life:0.9,color:'#ff5a4a'});
@@ -1745,6 +1861,8 @@ function hurtPlayer(d,opts={}){
     player.hp=0; game.over=true;
     const src=opts.from||{ident:{skill:'unknown',caster:'enemy'}};
     game.killer=src.ident;
+    /* v2.17：战死即入榜（无门槛），记录本局全部战绩维度。 */
+    try{ game.rankEntry=submitToBoard(); }catch(e){ game.rankEntry=null; }
     if(src.path&&src.path.length>2){
       /* v2.16：回放增加子弹时间字段 shotT（弹道内部时间）与 ts（当前倍速）。 */
       const rp={t:0,shotT:0,ts:KILL_CAM_SLOW_MIN,path:src.path.slice(),ident:src.ident,
@@ -2310,7 +2428,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.16',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.17',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -2323,14 +2441,9 @@ function drawHUD(){
   const ground=terrainH(player.pos.x,player.pos.z);
   ctx.fillText(L('altitude',Math.round(player.pos.y-Math.max(ground,0)),Math.round(player.targetAlt)),22,158);
   ctx.fillText(`${L('ground'+(ground<0?'Sea':'Land'))}   ${L('viewAngle')} ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   '+L('inCloud'):''}`,22,176);
-  /* v2.16：气血提示改为「显示值 = 真实速率」。
-     - 受击后 0.6s 停顿期：显示剩余停顿秒数（不再是无信息的"受击中…"）
-     - 掉血中：显示真实回血速率 pRegenHp()（与 update() 里 dt*pRegenHp() 一致）
-     - 满血：也显示速率，让玩家随时知道自己的恢复能力 */
-  const graceLeft=Math.max(0,HP_REGEN_GRACE-hpRegenDelay());
-  if(graceLeft>0){
-    ctx.fillStyle='rgba(180,70,55,0.8)';ctx.fillText(L('hpRegenHit',graceLeft.toFixed(1)),22,194);
-  }else if(player.hp<player.maxHp){
+  /* v2.17：气血提示只有两态 —— 掉血中显示真实回血速率，满血也显示速率。
+     v2.16 的「受击后 0.6s 停顿」已按用户要求去掉（无条件持续回复），故无停顿态。 */
+  if(player.hp<player.maxHp){
     ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(L('hpRegen',pRegenHp().toFixed(1)),22,194);
   }else{
     ctx.fillStyle='rgba(90,120,112,0.8)';ctx.fillText(L('hpRegenFull',pRegenHp().toFixed(1)),22,194);
@@ -2421,6 +2534,110 @@ function nearestEnemyInfo(){
   else dirName=L('dirBack');
   return {d:bd,dirName,ang};
 }
+/* ============================================================
+ * v2.17 排行榜绘制
+ * 表格列：名次 / 道号 / 积分 / 击杀 / 造成伤害 / 受到伤害 / 斩BOSS / 存活
+ * ============================================================ */
+function drawBoard(){
+  const list=boardSort(loadBoard());
+  const compact=W<860||IS_TOUCH;          // 窄屏/手机：只画核心列
+  /* 列宽：桌面 8 列（名次/道号/积分/击杀/造成伤害/受到伤害/斩BOSS/存活），
+     手机 6 列。数值列按表头字数留足空间，避免表头互相挤压。 */
+  const colW=compact?[44,142,58,46,62,62]:[40,164,62,48,82,82,62,58];
+  const headers=compact
+    ? [L('lbColRank'),L('lbColName'),L('lbColScore'),L('lbColKills'),L('lbColDealt'),L('lbColTaken')]
+    : [L('lbColRank'),L('lbColName'),L('lbColScore'),L('lbColKills'),L('lbColDealt'),L('lbColTaken'),L('lbColBoss'),L('lbColTime')];
+  const tableW=colW.reduce((a,b)=>a+b,0);
+  const rows=Math.min(list.length,compact?8:10);
+  const rowH=22;
+  /* 垂直布局（避免表头与首行重叠）：
+     y0            面板顶
+     y0+27        标题
+     y0+52        表头基线
+     y0+64        顶部分隔线
+     y0+78        第 1 行基线
+     行距 rowH=22 */
+  const headY=52, firstRowY=78;
+  const panelW=Math.min(W-40,tableW+48);
+  const panelH=firstRowY+rows*rowH+58;
+  const x0=Math.round((W-panelW)/2), y0=Math.round((H-panelH)/2-10);
+
+  ctx.fillStyle='rgba(14,26,24,0.93)';ctx.fillRect(x0,y0,panelW,panelH);
+  ctx.strokeStyle='rgba(143,224,204,0.45)';ctx.lineWidth=1.5;
+  ctx.strokeRect(x0+0.5,y0+0.5,panelW-1,panelH-1);
+  // 顶部青蓝渐变条
+  const g=ctx.createLinearGradient(x0,y0,x0+panelW,y0);
+  g.addColorStop(0,'rgba(143,224,204,0.30)');g.addColorStop(1,'rgba(143,224,204,0.02)');
+  ctx.fillStyle=g;ctx.fillRect(x0,y0,panelW,40);
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#8fe0cc';
+  ctx.font=`bold ${Math.min(24,Math.floor(W/22))}px "Microsoft YaHei"`;
+  ctx.fillText(L('lbTitle'),W/2,y0+27);
+  ctx.textAlign='left';
+
+  if(!list.length){
+    ctx.textAlign='center';ctx.fillStyle='rgba(244,239,226,0.65)';
+    ctx.font='15px "Microsoft YaHei"';
+    ctx.fillText(L('lbEmpty'),W/2,y0+92);
+    ctx.textAlign='left';
+    return;
+  }
+
+  // 表头
+  let cx=x0+24;
+  ctx.font='bold 12px "Microsoft YaHei"';ctx.fillStyle='rgba(143,224,204,0.85)';
+  headers.forEach((h,i)=>{ ctx.textAlign = i===1?'left':'center'; ctx.fillText(h,cx+(i===1?0:colW[i]/2),y0+headY); cx+=colW[i]; });
+  ctx.textAlign='left';
+  // 表头下分隔线
+  ctx.strokeStyle='rgba(143,224,204,0.22)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x0+16,y0+headY+9.5);ctx.lineTo(x0+panelW-16,y0+headY+9.5);ctx.stroke();
+
+  // 数据行
+  const myTs=game.rankEntry?game.rankEntry.entry.ts:null;
+  for(let i=0;i<rows;i++){
+    const r=list[i];
+    const ry=y0+firstRowY+i*rowH;
+    const isMe=myTs!==null&&r.ts===myTs;
+    if(isMe){ ctx.fillStyle='rgba(255,212,94,0.16)'; ctx.fillRect(x0+8,ry-13,panelW-16,20); }
+    const medal=i===0?'#ffd45e':i===1?'#d8dee0':i===2?'#c08552':null;
+    ctx.fillStyle=medal||(isMe?'#ffd45e':'rgba(244,239,226,0.92)');
+    ctx.font=(i<3||isMe?'bold ':'')+'13px "Microsoft YaHei"';
+    let x=x0+24;
+    ctx.textAlign='center'; ctx.fillText(String(i+1),x+colW[0]/2,ry);
+    x+=colW[0];
+    ctx.textAlign='left';
+    ctx.fillText(r.name||'—',x,ry);
+    if(isMe){ ctx.fillStyle='#ffd45e'; ctx.font='10px "Microsoft YaHei"'; ctx.fillText('▼',x+colW[1]-14,ry); }
+    x+=colW[1];
+    ctx.textAlign='center'; ctx.font='13px "Microsoft YaHei"';
+    ctx.fillStyle=medal||(isMe?'#ffd45e':'rgba(244,239,226,0.92)');
+    ctx.fillText(String(r.score??0),x+colW[2]/2,ry); x+=colW[2];
+    ctx.fillText(String(r.kills??0),x+colW[3]/2,ry); x+=colW[3];
+    ctx.fillText(String(r.dmgDealt??0),x+colW[4]/2,ry); x+=colW[4];
+    ctx.fillText(String(r.dmgTaken??0),x+colW[5]/2,ry); x+=colW[5];
+    if(!compact){
+      ctx.fillText(String(r.bossKills??0),x+colW[6]/2,ry); x+=colW[6];
+      ctx.fillText((r.time??0)+'s',x+colW[7]/2,ry);
+    }
+    ctx.textAlign='left';
+  }
+
+  // 底部：本局名次
+  if(game.rankEntry){
+    const r=game.rankEntry;
+    ctx.textAlign='center';
+    ctx.fillStyle=r.isNewRecord?'#ffd45e':'#8fe0cc';
+    ctx.font='bold 14px "Microsoft YaHei"';
+    const rankTxt=L('lbYourRank',r.rank)+(r.isNewRecord?'  '+L('lbNewRecord'):'');
+    ctx.fillText(rankTxt,W/2,y0+panelH-34);
+    ctx.textAlign='left';
+  }
+  ctx.textAlign='center';
+  ctx.fillStyle='rgba(200,210,205,0.6)';ctx.font='12px "Microsoft YaHei"';
+  ctx.fillText(L('lbClose'),W/2,y0+panelH-12);
+  ctx.textAlign='left';
+}
 function drawOverlay(){
   if(game.flash>0){ctx.fillStyle=`rgba(200,60,50,${game.flash*0.28})`;ctx.fillRect(0,0,W,H);}
   if(!game.started){
@@ -2455,13 +2672,30 @@ function drawOverlay(){
     }
     ctx.fillStyle='#f4efe2';ctx.font='18px "Microsoft YaHei"';
     ctx.fillText(L('kills',game.kills,game.score),W/2,H/2+16);
+    /* v2.17：本局战绩明细（造成/受到伤害、斩 BOSS、存活时间、境界） */
+    const s=game.rankEntry?game.rankEntry.entry:null;
+    if(s){
+      ctx.font='13px "Microsoft YaHei"';ctx.fillStyle='rgba(200,215,210,0.9)';
+      ctx.fillText(`${L('lbStatDealt')} ${s.dmgDealt}   ${L('lbStatTaken')} ${s.dmgTaken}   ${L('lbStatBoss')} ${s.bossKills}   ${L('lbStatTime')} ${s.time}${L('lbSec')}   ${L('lbStatRealm')} ${L('lbLv',s.realm)}`,
+                   W/2,H/2+42);
+    }
     ctx.fillStyle='#8fe0cc';
-    ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点画面重来':'Tap to restart'):L('deadRestart'),W/2,H/2+56);
+    ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点画面重来':'Tap to restart'):L('deadRestart'),W/2,H/2+70);
+    /* v2.17：角色道消后直接展示排行榜（L 键可再唤出/关闭） */
+    if(game.rankEntry){
+      ctx.fillStyle='#ffd45e';ctx.font='bold 14px "Microsoft YaHei"';
+      ctx.fillText(L('lbTitle')+' · '+L('lbYourRank',game.rankEntry.rank),W/2,H/2+98);
+    }
     if(game.lastReplay){   // 有回放可重看
       ctx.fillStyle='#ffd45e';ctx.font='14px "Microsoft YaHei"';
-      ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点此重看击杀回放':'Tap: replay kill'):L('deadViewReplay'),W/2,H/2+86);
+      ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点此重看击杀回放':'Tap: replay kill'):L('deadViewReplay'),W/2,H/2+124);
     }
     ctx.textAlign='left';
+  }
+  /* v2.17：排行榜覆盖层（L 键开关，任何时候都能看；游戏中会暂停推进） */
+  if(boardOpen){
+    ctx.fillStyle='rgba(10,18,18,0.72)';ctx.fillRect(0,0,W,H);
+    drawBoard();
   }
 }
 function render(){

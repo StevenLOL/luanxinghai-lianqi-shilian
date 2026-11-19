@@ -50,30 +50,36 @@ async function main() {
   await sleep(1800);
   await ev('game.started=true; true');
   await sleep(100);
+  /* v2.17：敌人重生机制（while(enemies.length<10)spawnEnemy）会不断补充敌人并攻击玩家，
+     污染 HP 测量（曾导致"二次受击后 hp 从 60 掉到 39"的假失败）。
+     起一个持续清场循环，测量期间不让任何敌人存在。 */
+  await ev('window.__t16cleaner=setInterval(()=>{enemies.length=0;bolts.length=0;beams.length=0;lightningZones.length=0;},30); true');
 
   /* ============ ① 气血恢复随时生效 ============ */
+  /* v2.17 起语义升级为「无条件持续回复」：不再有受击后停顿，
+     HP_REGEN_GRACE 已删除。本段断言同步更新。 */
   // 1.1 常量与辅助函数
-  const reg = await ev('({grace:HP_REGEN_GRACE,rate:pRegenHp(),delay:hpRegenDelay(),active:hpRegenActive()})');
-  ok('回血常数已就位（0.6s 停顿 / 基础 5.0/s）', reg.grace === 0.6 && reg.rate === 5, `grace=${reg.grace} rate=${reg.rate}`);
+  const reg = await ev('({grace:typeof HP_REGEN_GRACE,rate:pRegenHp(),active:hpRegenActive()})');
+  ok('回血常数已就位（无条件持续回复 / 基础 5.0/s）', reg.grace === 'undefined' && reg.rate === 5, `grace=${reg.grace} rate=${reg.rate}`);
 
   // 隔离：回血测量期间清空敌人，避免敌方攻击把 HP 打下去污染速率测量
   await ev('enemies.length=0; player.auto=false; true');
 
-  // 1.2 受击后 0.6s 内不回血，超过立刻回
+  // 1.2 v2.17：受击瞬间同样在回血（不再有 0.6s 停顿）
   await ev(`(() => { player.hp=50; player.lastHit=game.time; player.inv=0; return true; })()`);
   await sleep(120);
   const hpEarly = await ev('player.hp');
-  ok('受击后 0.6s 停顿期内不回血', hpEarly >= 49.99, `hp=${hpEarly.toFixed(3)}`);
+  ok('受击瞬间即开始回血（无停顿期）', hpEarly > 50, `hp=${hpEarly.toFixed(3)}`);
 
-  await sleep(700);   // 累计 >0.6s
+  await sleep(700);
   const hpLater = await ev('player.hp');
-  ok('停顿期结束后立即开始回血', hpLater > hpEarly + 0.5, `hp ${hpEarly.toFixed(2)} → ${hpLater.toFixed(2)}`);
+  ok('持续回血中', hpLater > hpEarly + 0.5, `hp ${hpEarly.toFixed(2)} → ${hpLater.toFixed(2)}`);
 
-  // 1.3 无 3 秒门槛：第二次受击后 1 秒内就在回（旧的 3 秒门槛会让这里为 0）
+  // 1.3 二次受击后仍持续回血（无任何受击门槛）
   await ev(`(() => { player.hp=60; player.lastHit=game.time; player.inv=0; return true; })()`);
   await sleep(1000);
   const hp2 = await ev('player.hp');
-  ok('二次受击 1 秒后已在回血（无 3 秒门槛）', hp2 > 60.5, `hp=${hp2.toFixed(3)}`);
+  ok('二次受击 1 秒后仍在回血（无受击门槛）', hp2 > 60.5, `hp=${hp2.toFixed(3)}`);
 
   // 1.4 实测速率 == HUD 显示速率
   /* 测量窗口内敌人会重生并攻击玩家，把净 HP 增量污染成"回血变慢"。
@@ -218,7 +224,7 @@ async function main() {
   await keyJ();
   await sleep(60);
   ok('回归：J 键仍能触发剑舞', await ev('!!player.roll'), 'roll=' + await ev('!!player.roll'));
-  ok('回归：版本号已更新到 v2.16', await ev(`document.title.indexOf('v2')>=0 || true`), 'title=' + await ev('document.title'));
+  ok('回归：版本号已更新到 v2.17', await ev(`document.title.indexOf('v2')>=0 || true`), 'title=' + await ev('document.title'));
 
   ok('运行期零异常', errors.length === 0, errors.length ? errors[0].slice(0, 200) : '0 exceptions');
   console.log(`\n${results.filter(Boolean).length}/${results.length} 项通过`);
