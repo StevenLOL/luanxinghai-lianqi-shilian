@@ -306,7 +306,9 @@ const I18N={
     lbStatTaken:'受到伤害', lbStatBoss:'击杀 BOSS', lbStatTime:'存活', lbStatRealm:'境界',
     lbNewRecord:'★ 新纪录',
     lbSec:'秒', lbLv:'练气 {0} 层',
-    lbNotRanked:'本局未进前 {0} 名（战绩已记录）'
+    lbNotRanked:'本局未进前 {0} 名（战绩已记录）',
+    /* v2.20 分页 */
+    lbPage:'第 {0}/{1} 页', lbPageTip:'↑↓ 翻页'
   },
   en:{
     title:'Chaos Sea · Qi Refining Trial', hp:'HP', qi:'Qi',
@@ -350,7 +352,9 @@ const I18N={
     lbStatTaken:'Taken', lbStatBoss:'Bosses', lbStatTime:'Alive', lbStatRealm:'Realm',
     lbNewRecord:'★ NEW RECORD',
     lbSec:'s', lbLv:'Qi Refining {0}',
-    lbNotRanked:'Not in top {0} this run (score recorded)'
+    lbNotRanked:'Not in top {0} this run (score recorded)',
+    /* v2.20 paging */
+    lbPage:'Page {0}/{1}', lbPageTip:'↑↓ to page'
   }
 };
 function camModeName(){ return UI_LANG==='en'?
@@ -463,6 +467,19 @@ window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase(); keys[k]=true;
   // v2.17：L = 排行榜（随时可看，不必等死）。原先 L 是雷法别名，现改派给排行榜；雷法仍是 4 键。
   if(k==='l'&&!e.repeat){ toggleBoard(); e.preventDefault(); return; }
+  /* v2.20：榜单打开时，↑↓ / PageUp / PageDown 翻页。
+     必须在技能分发之前拦截，否则看榜时随手按 1/2/3 会放技能；
+     也避免 ↑↓ 触发视角或移动。 */
+  if(boardOpen){
+    if(k==='arrowup'||k==='pageup'||k==='arrowdown'||k==='pagedown'){
+      if(!e.repeat){
+        const per=boardPerPage(), total=Math.max(1,Math.ceil(boardSort(loadBoard()).length/per));
+        boardPage=clamp(boardPage+(k==='arrowup'||k==='pageup'?-1:1),0,total-1);
+      }
+      e.preventDefault(); return;
+    }
+    e.preventDefault(); return;   // 其余按键在看榜期间一律不生效
+  }
   // v2.15：回放期间任意键跳过；死亡界面空格可重看最后一次击杀
   if(game.replay){game.replay=null;e.preventDefault();return;}
   if(game.over){
@@ -1475,9 +1492,41 @@ function submitToBoard(){
 
 /* v2.17：排行榜开关。boardOpen=true 时覆盖层显示，游戏中会暂停推进。 */
 let boardOpen=false;
+/* v2.20：榜单分页。
+   旧版只画前 10 行，而榜单容量是 20 条 —— 第 11~20 名永远看不到，
+   玩家若排到 15 名，看到的榜单里压根没有自己，还会被「未进前 20 名」误导。
+   现在按视口高度自适应行数，桌面通常能一次显示全部 20 条；
+   放不下时分页，↑↓ 翻页，打开榜单时自动定位到本局所在页。 */
+let boardPage=0;
+const LB_ROW_H=22;
+/* 每页显示多少行：桌面按视口高度自适应（上限 LB_MAX），手机固定 8 行。 */
+function boardPerPage(){
+  const compact=W<860||IS_TOUCH;
+  const maxFit=Math.max(4,Math.min(LB_MAX,Math.floor((H-190)/LB_ROW_H)));
+  return compact?Math.min(8,maxFit):maxFit;
+}
 function toggleBoard(){
   boardOpen=!boardOpen;
+  if(boardOpen){
+    boardPage=0;
+    /* 自动跳到本局所在页：排序后的真实下标优先（名次可能因他人成绩变化而位移） */
+    const me=game.rankEntry&&game.rankEntry.entry;
+    if(me){
+      const idx=boardSort(loadBoard()).findIndex(x=>x.ts===me.ts&&x.name===me.name);
+      if(idx>=0) boardPage=Math.floor(idx/boardPerPage());
+    }
+  }
   player.lastCast=boardOpen?L('lbOpen'):L('lbClose');
+}
+/* v2.20：当前页视图（分页计算集中在这里，便于回归测试直接断言） */
+function boardView(){
+  const list=boardSort(loadBoard());
+  const perPage=boardPerPage();
+  const totalPages=Math.max(1,Math.ceil(list.length/perPage));
+  boardPage=clamp(boardPage,0,totalPages-1);
+  const start=boardPage*perPage;
+  const rows=Math.min(perPage,Math.max(0,list.length-start));
+  return {list,perPage,totalPages,start,rows};
 }
 
 /* ---------- 重置 ---------- */
@@ -2480,7 +2529,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.19',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.20',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
@@ -2600,8 +2649,11 @@ function drawBoard(){
     ? [L('lbColRank'),L('lbColName'),L('lbColScore'),L('lbColKills'),L('lbColDealt'),L('lbColTaken')]
     : [L('lbColRank'),L('lbColName'),L('lbColScore'),L('lbColKills'),L('lbColDealt'),L('lbColTaken'),L('lbColBoss'),L('lbColTime')];
   const tableW=colW.reduce((a,b)=>a+b,0);
-  const rows=Math.min(list.length,compact?8:10);
-  const rowH=22;
+  const rowH=LB_ROW_H;
+  /* v2.20：分页。桌面按视口高度自适应（通常 20 条一次显示完），
+     手机 8 条/页；放不下时翻页，名次跨页连续编号。 */
+  const view=boardView();
+  const perPage=view.perPage, totalPages=view.totalPages, start=view.start, rows=view.rows;
   /* 垂直布局（避免表头与首行重叠）：
      y0            面板顶
      y0+27        标题
@@ -2611,8 +2663,9 @@ function drawBoard(){
      行距 rowH=22 */
   const headY=52, firstRowY=78;
   const panelW=Math.min(W-40,tableW+48);
-  const panelH=firstRowY+rows*rowH+58;
-  const x0=Math.round((W-panelW)/2), y0=Math.round((H-panelH)/2-10);
+  /* 面板高度按「本页最多行数」计算，翻页时高度不变，不会跳动 */
+  const panelH=firstRowY+Math.min(perPage,Math.max(list.length,1))*rowH+58;
+  const x0=Math.round((W-panelW)/2), y0=Math.max(4,Math.round((H-panelH)/2-10));
 
   ctx.fillStyle='rgba(14,26,24,0.93)';ctx.fillRect(x0,y0,panelW,panelH);
   ctx.strokeStyle='rgba(143,224,204,0.45)';ctx.lineWidth=1.5;
@@ -2645,18 +2698,19 @@ function drawBoard(){
   ctx.strokeStyle='rgba(143,224,204,0.22)';ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(x0+16,y0+headY+9.5);ctx.lineTo(x0+panelW-16,y0+headY+9.5);ctx.stroke();
 
-  // 数据行
-  const myTs=game.rankEntry?game.rankEntry.entry.ts:null;
+  // 数据行（v2.20：分页，名次跨页连续；奖牌按绝对名次判定）
+  const me=game.rankEntry?game.rankEntry.entry:null;
   for(let i=0;i<rows;i++){
-    const r=list[i];
+    const abs=start+i;
+    const r=list[abs];
     const ry=y0+firstRowY+i*rowH;
-    const isMe=myTs!==null&&r.ts===myTs;
+    const isMe=!!me&&r.ts===me.ts&&r.name===me.name;
     if(isMe){ ctx.fillStyle='rgba(255,212,94,0.16)'; ctx.fillRect(x0+8,ry-13,panelW-16,20); }
-    const medal=i===0?'#ffd45e':i===1?'#d8dee0':i===2?'#c08552':null;
+    const medal=abs===0?'#ffd45e':abs===1?'#d8dee0':abs===2?'#c08552':null;
     ctx.fillStyle=medal||(isMe?'#ffd45e':'rgba(244,239,226,0.92)');
-    ctx.font=(i<3||isMe?'bold ':'')+'13px "Microsoft YaHei"';
+    ctx.font=(abs<3||isMe?'bold ':'')+'13px "Microsoft YaHei"';
     let x=x0+24;
-    ctx.textAlign='center'; ctx.fillText(String(i+1),x+colW[0]/2,ry);
+    ctx.textAlign='center'; ctx.fillText(String(abs+1),x+colW[0]/2,ry);
     x+=colW[0];
     ctx.textAlign='left';
     ctx.fillText(r.name||'—',x,ry);
@@ -2692,7 +2746,11 @@ function drawBoard(){
   }
   ctx.textAlign='center';
   ctx.fillStyle='rgba(200,210,205,0.6)';ctx.font='12px "Microsoft YaHei"';
-  ctx.fillText(L('lbClose'),W/2,y0+panelH-12);
+  /* v2.20：多页时在底部标注页码与翻页提示 */
+  const foot=totalPages>1
+    ? L('lbClose')+'  ·  '+L('lbPage',boardPage+1,totalPages)+'  ·  '+L('lbPageTip')
+    : L('lbClose');
+  ctx.fillText(foot,W/2,y0+panelH-12);
   ctx.textAlign='left';
 }
 function drawOverlay(){
@@ -2762,8 +2820,10 @@ function drawOverlay(){
 function render(){
   const inReplay=!!game.replay;
   // v2.15：回放时隐藏固定提示条，避免与电影黑边里的凶手标注重叠
+  // v2.20：榜单打开时同样隐藏 —— 底部提示条是 fixed 定位，会压住面板底部的
+  //        「关闭排行榜 / 页码 / 翻页提示」，导致小视口下看不到翻页入口。
   const tipEl=document.getElementById('tip');
-  if(tipEl)tipEl.style.display=inReplay?'none':(IS_TOUCH?'none':'');
+  if(tipEl)tipEl.style.display=(inReplay||boardOpen)?'none':(IS_TOUCH?'none':'');
   // v2.15：回放期间相机基向量由 updateKillCam 设定，不能再被玩家跟随覆盖
   drawSky(); if(!inReplay)updateCameraBasis();
   drawTerrain();
