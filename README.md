@@ -129,9 +129,12 @@ docs/
 
 ## 📚 文档 / Documentation
 
-- [完整交付说明（中文）](docs/011_MVP交付说明_御剑空对地.md) — 设计、迭代、验证全记录 / full design & verification log
-- [如何运行本地游戏](docs/005_如何运行本地游戏.md)
-- [产品设计方案](docs/010_产品设计方案_仙侠剑仙游戏.md)
+- [007 用户原始需求落盘](docs/007_需求落盘_仙侠剑仙游戏.md) — 对话输入第一时间留档 · Raw user requirements, captured verbatim
+- [008 仙侠剑仙游戏调研报告](docs/008_仙侠剑仙游戏调研报告.md) — 御剑探索 × 空间战术 × 宗门经营 · Sword-flight exploration × spatial tactics × sect management
+- [009 路线 B 实施规格](docs/009_路线B实施规格.md) — 真 3D 舞台 + 3D 空间切片体单位 · True-3D stage + 3D spatial-slice units
+- [010 产品设计方案](docs/010_产品设计方案_仙侠剑仙游戏.md) — GDD 简版 · Lightweight game design document
+- [011 MVP 交付说明](docs/011_MVP交付说明_御剑空对地.md) — 设计、迭代、验证全记录 · Full design, iteration and verification log
+- [012 Forge 地形云层移植分析](docs/012_Forge地形云层移植分析.md) — 地形与云层移植方案 · Terrain and cloud-layer porting analysis
 
 ---
 
