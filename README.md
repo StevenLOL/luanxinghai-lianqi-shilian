@@ -50,28 +50,25 @@ The kill cam reuses the in-game spell rendering — sword, fireball, and ice bla
 
 | 中文 | English |
 |---|---|
-| **单文件即玩** — 一个 HTML 内联全部 JS/CSS，双击 `file://` 直接运行 | **Single file** — one HTML with inline JS/CSS, runs from `file://` |
 | **伪 3D 飞行** — 方格山海地形、云层、日照、越肩追尾相机 | **Pseudo-3D flight** — tiled terrain, clouds, sunlight, over-the-shoulder camera |
 | **技能系统** — 四种功法各有独立数值与弹道：飞剑（单体重击）、火球（范围爆炸）、冰剑（三连散射）、雷法（广域连锁，敌群越多越强） | **Skill system** — four spells with distinct stats & trajectories: sword (single-target burst), fireball (AoE explosion), ice blade (3-shot spread), lightning (area chain, stronger in crowds) |
 | **自动追踪** — 飞剑/火球带制导，锁定最近目标；雷法自动瞄准敌群中心 | **Auto-tracking** — sword & fireball are homing and lock the nearest target; lightning auto-aims at the enemy cluster center |
 | **导弹轨迹** — 飞剑走三段式弹道：冷发射垂直弹射 → 点火有限角速度转向 → 持续加速冲刺，带分段喷焰 | **Missile trajectory** — the sword uses a 3-stage flight: cold-launch eject → limited-rate turn after ignition → accelerating dash, with stage-specific exhaust |
 | **机动躲避** — `J` 剑舞·万象翻滚：横滚 360° 剑光护体（全程短无敌）+ 桶滚剑气横扫 + 半筋斗抢高度，可连段；`空格` 俯冲突进 | **Evasive maneuvers** — `J` Sword Dance roll: 360° barrel roll with sword-energy shield (brief invulnerability) + sweeping slash + half-loop climb, chainable; `Space` for a dive |
 | **自动斗法** — `F` 键切换自动攻击，按射程/敌群密度实时评分选法术与索敌 | **Auto-cast** — press F to auto-fight; picks spells and targets by live scoring of range and enemy clustering |
-| **气血无条件持续回复** — 掉血即回，不看是否被命中 | **Unconditional HP regen** — HP regenerates continuously, even while taking hits |
 | **练气期大能榜** — 8 维度战绩、本机持久化、L 键随时查看、道消后自动展示 | **Leaderboard** — 8 stats, local persistence, press L anytime, auto-shown on death |
 | **击杀回放（Kill Cam）** — 子弹时间 + 第三视角，真实还原致命一击的法术 | **Kill Cam** — bullet-time third-person replay of the fatal blow with the actual spell |
 | **麒麟 Boss 分段重生** — 每 5 次击杀刷出一只，同屏最多一只 | **Qilin boss respawn** — one boss per 5 kills, at most one on screen |
-| **中英双语** — 按浏览器语言自动切换（zh / en） | **Bilingual** — auto-switches by browser locale (zh / en) |
 | **触屏适配** — 手机端虚拟摇杆与按钮 | **Touch support** — virtual joystick and buttons on mobile |
 
 ### 技能机制详解 / Spell Mechanics
 
 | 技能 Spell | 定位 Role | 弹道 / 制导 Trajectory & Guidance |
 |---|---|---|
-| **飞剑术** Sword | 单体重击，26 伤害 / 2 秒 CD | **导弹式三段弹道**：垂直冷发射 → 点火转向 → 加速冲刺；锁定最近目标 |
-| **火球** Fireball | 范围爆炸，半径 12 丈 / 0.8 秒 CD | 制导追踪 + 落点范围伤害 |
-| **冰剑术** Ice Blade | 三连散射，14×3 伤害 / 0.7 秒 CD | 无制导直线三连，近距离覆盖 |
-| **雷法** Lightning | 广域连锁，半径 14 丈 / 2 秒 CD | 自动瞄准敌群中心；每多命中一个目标，连锁伤害 +60% |
+| **飞剑术 / Sword** | 单体重击，26 伤害 / 2 秒 CD<br>Single-target burst, 26 dmg / 2s CD | **导弹式三段弹道**：垂直冷发射 → 点火转向 → 加速冲刺；锁定最近目标<br>**3-stage missile trajectory**: vertical cold launch → ignition turn → accelerating dash; locks nearest target |
+| **火球 / Fireball** | 范围爆炸，半径 12 丈 / 0.8 秒 CD<br>AoE explosion, 12 zhang radius / 0.8s CD | 制导追踪 + 落点范围伤害<br>Homing guidance + area damage on impact |
+| **冰剑术 / Ice Blade** | 三连散射，14×3 伤害 / 0.7 秒 CD<br>3-shot spread, 14×3 dmg / 0.7s CD | 无制导直线三连，近距离覆盖<br>Unguided straight 3-shot, close-range coverage |
+| **雷法 / Lightning** | 广域连锁，半径 14 丈 / 2 秒 CD<br>Wide-area chain, 14 zhang radius / 2s CD | 自动瞄准敌群中心；每多命中一个目标，连锁伤害 +60%<br>Auto-aims at enemy cluster center; +60% chain damage per extra target hit |
 
 > 开启自动斗法（`F`）后，游戏会实时按射程与敌群密度评分选法术：
 > 散兵用火球/冰剑，3 个以上聚团则优先雷法。
