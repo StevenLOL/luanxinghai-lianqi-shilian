@@ -15,7 +15,7 @@
 
 ### 🎬 演示视频 / Demo Video
 
-[![演示视频封面：乱星海 · 练气期试炼](docs/screenshots/04-douyin-cover.webp)](https://www.douyin.com/user/self?modal_id=7709943309716994426)
+[![演示视频封面：乱星海 · 练气期试炼](docs/screenshots/04-douyin-cover.webp)](https://v.douyin.com/UfRGpBa4j5A/)
 
 *点击封面跳转抖音观看完整演示 / Click the cover to watch the full demo on Douyin*
 

@@ -30,6 +30,14 @@ desktop.ini
 # 工作区数据（重要，不删除；但非源码，不纳入 git 跟踪）
 .workbuddy/
 
+# docs 001-006：早期调研/竞品/运行说明，仅本地保留，云端仓库不保存
+docs/001_*.md
+docs/002_*.md
+docs/003_*.md
+docs/004_*.md
+docs/005_*.md
+docs/006_*.md
+
 # v2.16 线上发布：发布产物副本与内部标记不入库（源码在 scripts/mvp_air_to_ground.html）
 deploy_forge/
 .wbapp_*.genie
