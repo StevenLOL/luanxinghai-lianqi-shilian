@@ -1,0 +1,142 @@
+# 乱星海 · 练气期试炼
+
+**御剑凌空 · 山海之间自动斗法** — 一个零依赖、单文件的伪 3D 仙侠空对地射击游戏。双击 HTML 即可开玩。
+
+**Chaos Sea · Qi Refining Trial** — A zero-dependency, single-file pseudo-3D xianxia air-to-ground shooter. Double-click the HTML and play.
+
+---
+
+## 🎮 在线试玩 / Play Online
+
+**[点此直接开玩 →](https://xianjian-kongduodi.app.workbuddy.host/?sharecode=ASJWDZ6E6D)**
+
+> 无需安装、无需登录。首次加载约 9 MB 素材（5 张精灵图），稍候即可。
+> No install, no login. First load pulls ~9 MB of sprite assets — just wait a moment.
+
+### 🎬 演示视频 / Demo Video
+
+[![演示视频封面：乱星海 · 练气期试炼](docs/screenshots/04-douyin-cover.webp)](https://www.douyin.com/user/self?modal_id=7709943309716994426)
+
+*点击封面跳转抖音观看完整演示 / Click the cover to watch the full demo on Douyin*
+
+---
+
+## 📸 游戏截图 / Screenshots
+
+### 战斗画面 / Gameplay
+
+![战斗画面：御剑飞行与自动斗法](docs/screenshots/01-gameplay.png)
+
+### 麒麟 Boss 战 / Qilin Boss Fight
+
+![麒麟 Boss 战](docs/screenshots/02-boss.png)
+
+### 练气期大能榜 / Leaderboard
+
+![练气期大能榜](docs/screenshots/03-leaderboard.png)
+
+### 击杀回放（复用本体法术特效）/ Kill Cam (actual spell VFX)
+
+飞剑 / 火球 / 冰剑三种法术在回放里保持各自的本体外形与拖尾配色。
+The kill cam reuses the in-game spell rendering — sword, fireball, and ice blade each keep their own shape and trail color.
+
+| 飞剑 Sword | 火球 Fireball | 冰剑 Ice Blade |
+|---|---|---|
+| ![飞剑击杀回放](docs/screenshots/06-killcam-sword.png) | ![火球击杀回放](docs/screenshots/05-killcam-fire.png) | ![冰剑击杀回放](docs/screenshots/07-killcam-ice.png) |
+
+---
+
+## ✨ 特性 / Features
+
+| 中文 | English |
+|---|---|
+| **单文件即玩** — 一个 HTML 内联全部 JS/CSS，双击 `file://` 直接运行 | **Single file** — one HTML with inline JS/CSS, runs from `file://` |
+| **伪 3D 飞行** — 方格山海地形、云层、日照、越肩追尾相机 | **Pseudo-3D flight** — tiled terrain, clouds, sunlight, over-the-shoulder camera |
+| **四种法术** — 飞剑术 / 火球 / 冰剑术 / 雷法，各有独立弹道与特效 | **Four spells** — sword, fireball, ice blade, lightning, each with distinct VFX |
+| **自动斗法** — F 键切换自动攻击，自动选法术、自动索敌 | **Auto-cast** — press F to let the game pick spells and targets |
+| **气血无条件持续回复** — 掉血即回，不看是否被命中 | **Unconditional HP regen** — HP regenerates continuously, even while taking hits |
+| **练气期大能榜** — 8 维度战绩、本机持久化、L 键随时查看、道消后自动展示 | **Leaderboard** — 8 stats, local persistence, press L anytime, auto-shown on death |
+| **击杀回放（Kill Cam）** — 子弹时间 + 第三视角，真实还原致命一击的法术 | **Kill Cam** — bullet-time third-person replay of the fatal blow with the actual spell |
+| **麒麟 Boss 分段重生** — 每 5 次击杀刷出一只，同屏最多一只 | **Qilin boss respawn** — one boss per 5 kills, at most one on screen |
+| **中英双语** — 按浏览器语言自动切换（zh / en） | **Bilingual** — auto-switches by browser locale (zh / en) |
+| **触屏适配** — 手机端虚拟摇杆与按钮 | **Touch support** — virtual joystick and buttons on mobile |
+
+---
+
+## 🕹️ 操作 / Controls
+
+| 按键 Key | 功能 Action |
+|---|---|
+| `W` / `S` | 前进 / 后撤 · Forward / Back |
+| `A` / `D` | 转向 · Steer |
+| `Q` / `E` | 降 / 升 · Descend / Ascend |
+| `1` `2` `3` `4` | 飞剑术 / 火球 / 冰剑术 / 雷法 · Sword / Fire / Ice / Lightning |
+| `F` | 自动攻击开关 · Toggle auto-cast |
+| `V` | 显示 / 隐藏视野 · Toggle vision range |
+| `Z` `X` `C` | 切换相机视角 · Camera angles |
+| `空格` Space | 俯冲 · Dive |
+| `J` | 剑舞翻滚 · Sword-dance roll |
+| `L` | 打开 / 关闭排行榜（↑↓ 翻页）· Toggle leaderboard (↑↓ to page) |
+| `R` | 重来 · Restart |
+
+---
+
+## 🚀 本地运行 / Run Locally
+
+**最简单 / Simplest**: 直接用浏览器打开 `scripts/mvp_air_to_ground.html`。
+Just open `scripts/mvp_air_to_ground.html` in a browser.
+
+**用本地服务器 / With a local server**（推荐用于开发 / recommended for dev）:
+
+```bash
+cd <仓库根目录 / repo root>
+python -m http.server 8000
+# 浏览 / open http://127.0.0.1:8000/scripts/mvp_air_to_ground.html
+```
+
+> 素材位于 `scripts/assets/`，通过相对路径加载，无需构建步骤。
+> Sprites live in `scripts/assets/` and load via relative paths — no build step.
+
+---
+
+## 📁 项目结构 / Project Structure
+
+```
+scripts/
+  mvp_air_to_ground.html   # 游戏本体，全部逻辑与样式内联 / the whole game
+  assets/                  # 精灵图资源 / sprite assets
+  *_test*.js               # CDP 自动化测试 / CDP-based automated tests
+  _testlib.js              # 测试公共库 / shared test helpers
+docs/
+  011_MVP交付说明_御剑空对地.md  # 完整交付说明（中文）/ full delivery doc (Chinese)
+  screenshots/             # 本 README 使用的截图 / screenshots used in this README
+```
+
+---
+
+## 📚 文档 / Documentation
+
+- [完整交付说明（中文）](docs/011_MVP交付说明_御剑空对地.md) — 设计、迭代、验证全记录 / full design & verification log
+- [如何运行本地游戏](docs/005_如何运行本地游戏.md)
+- [产品设计方案](docs/010_产品设计方案_仙侠剑仙游戏.md)
+
+---
+
+## 🧪 测试 / Tests
+
+全套 CDP 自动化测试覆盖战斗、排行榜、安全加固、Kill Cam 等，共 **204 项断言全部通过**。
+The full CDP-based suite covers combat, leaderboard, security hardening, and kill cam — **204 assertions, all passing**.
+
+```bash
+node scripts/28_test_v221.js   # Kill Cam 法术特效专项 / kill cam spell VFX
+node scripts/26_test_v220.js   # 排行榜分页 / leaderboard paging
+node scripts/24_test_v219.js   # 排行榜安全 / leaderboard security
+```
+
+> 需要本地已启动 CDP 调试浏览器（端口 9223）与静态服务器（端口 8000）。
+> Requires a CDP-enabled browser on port 9223 and a static server on port 8000.
+
+---
+
+当前版本 **v2.21**。线上与本地 `file://` 版本为同一份代码，行为一致。
+Current version: **v2.21**. The online build and the local `file://` build are the same code.
