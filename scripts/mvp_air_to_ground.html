@@ -256,6 +256,18 @@ const LIGHTNING={key:'lightning',name:'雷系功法',cd:2.0,cost:18,range:20,
                  type:'zone',homing:false,count:1,speed:0};
 SPELLS.lightning=LIGHTNING;
 const SPELL_ORDER=['sword','fire','ice','lightning'];   // 玩家可自动决策的法术
+
+/* v2.22 惯性继承：运动参考系中发射的弹丸应带上母体速度（伽利略叠加）。
+   仅带制导的飞剑/火球叠加——制导状态机会把初速偏差拉回目标；
+   冰剑无制导不继承，避免永久偏航。继承量按比例并设上限。 */
+const INHERIT_FACTOR=0.5;   // 继承主角速度的比例（部分继承，兼顾真实感与可控）
+const INHERIT_CAP=18;       // 单轴继承量上限（丈/秒），防高速冲刺时弹丸被甩出射程
+function inheritVec(vel,k,cap,out){
+  const sc=Math.max(0,Math.min(1,k));
+  out.x=Math.max(-cap,Math.min(cap,(vel.x||0)*sc));
+  out.y=Math.max(-cap,Math.min(cap,(vel.y||0)*sc));
+  out.z=Math.max(-cap,Math.min(cap,(vel.z||0)*sc));
+}
 const ENEMY_SPELL_ORDER=['sword','fire','ice'];         // 敌人只配 1/2/3 号技能（v2.2 设定）
 const BOSS_BEAM={range:50,radius:14,duration:1.0,tick:0.2,dmg:7,cd:4.0};
 
@@ -384,7 +396,7 @@ let game={started:false,over:false,score:0,kills:0,time:0,flash:0,
           // v2.18：麒麟重生分段计数。bossWave=已刷出过的麒麟数，killsAtBoss=刷出当前这只时的击杀快照
           bossWave:0,killsAtBoss:0};
 let player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
-            heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
+            heading:0,trail:[],dir:{x:0,y:0,z:-1},vel:{x:0,y:0,z:0},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
             autoChoice:'—',lastCast:'—'};
 let cam={yaw:0,yawRate:0,pitchIdx:1,dist:44,pitches:[25,45,70],mode:'soft',bank:0,
@@ -752,8 +764,19 @@ function launchSpell(ownerKey,from,target,key,caster){
   const pushOne=(aim)=>{
     // v2.9：导弹飞剑先垂直弹射（冷发射），由 missilePhase 状态机接管转向/冲刺；
     // 非导弹（火球/冰剑）仍用 ballistic 抛物线初速。
-    const v=S.missile?{x:(aim.x-from.x)*0.05,y:MISSILE.ejectVmax*0.55,z:(aim.z-from.z)*0.05}
-                     :ballistic(from,aim,speed);
+    // v2.22：惯性继承——弹丸初速叠加施法者当时的运动速度。
+    // 物理依据：伽利略速度叠加，运动参考系发射的物体带母体动量。
+    // 只有带制导的飞剑(homing+导弹状态机)和火球(homing)叠加：制导会吸收偏差，
+    // 命中率不变；冰剑无制导，叠加会导致永久偏航，故不继承。
+    // 继承量设上限，避免高速移动时冷发射段被甩出射程。
+    let inher={x:0,y:0,z:0};
+    if(ownerKey==='player' && player.vel && (key==='sword'||key==='fire')){
+      const k=INHERIT_FACTOR;                    // 部分继承（默认 0.5）
+      inheritVec(player.vel, k, INHERIT_CAP, inher);
+    }
+    const v0=S.missile?{x:(aim.x-from.x)*0.05,y:MISSILE.ejectVmax*0.55,z:(aim.z-from.z)*0.05}
+                      :ballistic(from,aim,speed);
+    const v={x:v0.x+inher.x,y:v0.y+inher.y,z:v0.z+inher.z};
     bolts.push({
       kind:key,owner:ownerKey,pos:{...from},v,
       // v2.15：弹丸身份 + 完整飞行轨迹（供致命一击回放；casterType 标注凶手种类）
@@ -1536,7 +1559,7 @@ function reset(){
         dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null,
         bossWave:0,killsAtBoss:0};
   player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
-          heading:0,trail:[],dir:{x:0,y:0,z:-1},inv:0,dive:null,roll:null,rollDir:1,lastHit:0,inCloud:false,cloudVapourDue:0,
+          heading:0,trail:[],dir:{x:0,y:0,z:-1},vel:{x:0,y:0,z:0},inv:0,dive:null,roll:null,rollDir:1,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
           autoChoice:'—',lastCast:'—'};
   enemies=[];bolts=[];beams=[];lightningZones=[];particles=[];dmgNums=[];
@@ -1834,6 +1857,9 @@ function update(dt){
 
   /* v2.14：翻滚机动接管本帧的移动与高度（与普通飞行/俯冲互斥），
      但灵力回复、自动斗法、敌人行动照常。 */
+  /* v2.22：速度起点必须在 updateRoll 之前、且在 if(!rolling) 块之外 ——
+     翻滚同样改 player.pos，起点放块内会 ReferenceError 并漏算翻滚位移。 */
+  const pvx=player.pos.x, pvz=player.pos.z, pvy=player.pos.y;
   const rolling=updateRoll(dt);
 
   // v2.14：地形高度提到块外，翻滚/常规分支都要用（曾因留在块内导致 ReferenceError）
@@ -1853,6 +1879,8 @@ function update(dt){
   if(keys['w']||keys['arrowup'])mf+=1;
   if(keys['s']||keys['arrowdown'])mf-=1;
   const spd=mf<0?36*REVERSE_SCALE:36;
+  /* v2.22：速度起点 pvx/pvz/pvy 已在 updateRoll 之前记录（见上，块外），
+     这里直接用真实位移推进，末尾统一算 vel。 */
   player.pos.x+=player.dir.x*mf*spd*dt;
   player.pos.z+=player.dir.z*mf*spd*dt;
 
@@ -1889,6 +1917,13 @@ function update(dt){
   }
   } // end if(!rolling)
   player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,150);
+  /* v2.22：完成全部位移后算速度。x/z 用本帧起止位移，y 用高度变化；
+     dt 钳在小范围，避免首帧/切后台的巨大间隔污染速度。 */
+  if(dt>1e-5){
+    player.vel.x=(player.pos.x-pvx)/dt;
+    player.vel.z=(player.pos.z-pvz)/dt;
+    player.vel.y=(player.pos.y-pvy)/dt;
+  }
   player.trail.push({...player.pos});
   if(player.trail.length>22)player.trail.shift();
 
@@ -2582,7 +2617,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.21',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.22',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);

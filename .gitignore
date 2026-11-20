@@ -44,3 +44,5 @@ deploy_forge/
 # Forge OAuth 客户端凭据（含 client_id，不入库）
 scripts/.forge_client.json
 scripts/.forge_token.json
+# CDP 自动化测试专用 Chrome profile（仅本地临时数据）
+.chrome-debug-profile/
