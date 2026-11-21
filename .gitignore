@@ -48,3 +48,7 @@ scripts/.forge_token.json
 .chrome-debug-profile/
 # git 历史重写前的本地备份（含旧历史，绝不入库）
 .git-backup/
+# 微信小游戏工程：用户未授权上 GitHub，仅本地保留
+wechat-minigame/
+scripts/31_build_minigame.js
+scripts/32_smoke_minigame.js
