@@ -46,3 +46,5 @@ scripts/.forge_client.json
 scripts/.forge_token.json
 # CDP 自动化测试专用 Chrome profile（仅本地临时数据）
 .chrome-debug-profile/
+# git 历史重写前的本地备份（含旧历史，绝不入库）
+.git-backup/
