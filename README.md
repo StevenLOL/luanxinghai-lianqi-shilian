@@ -2,7 +2,7 @@
 
 **御剑凌空 · 山海之间自动斗法** — 一个零依赖、单文件的伪 3D 仙侠空对地射击游戏。双击 HTML 即可开玩。
 
-**Chaos Sea · Qi Refining Trial** — A zero-dependency, single-file pseudo-3D xianxia air-to-ground shooter. Double-click the HTML and play.
+**Chaos Sea · Lianqi Trial** — A zero-dependency, single-file pseudo-3D xianxia air-to-ground shooter. Double-click the HTML and play.
 
 ---
 
@@ -66,9 +66,9 @@ The kill cam reuses the in-game spell rendering — sword, fireball, and ice bla
 | 技能 Spell | 定位 Role | 弹道 / 制导 Trajectory & Guidance |
 |---|---|---|
 | **飞剑术 / Sword** | 单体重击，26 伤害 / 2 秒 CD<br>Single-target burst, 26 dmg / 2s CD | **导弹式三段弹道**：垂直冷发射 → 点火转向 → 加速冲刺；锁定最近目标<br>**3-stage missile trajectory**: vertical cold launch → ignition turn → accelerating dash; locks nearest target |
-| **火球 / Fireball** | 范围爆炸，半径 12 丈 / 0.8 秒 CD<br>AoE explosion, 12 zhang radius / 0.8s CD | 制导追踪 + 落点范围伤害<br>Homing guidance + area damage on impact |
+| **火球 / Fireball** | 范围爆炸，半径 12 米 / 0.8 秒 CD<br>AoE explosion, 12 m radius / 0.8s CD | 制导追踪 + 落点范围伤害<br>Homing guidance + area damage on impact |
 | **冰剑术 / Ice Blade** | 三连散射，14×3 伤害 / 0.7 秒 CD<br>3-shot spread, 14×3 dmg / 0.7s CD | 无制导直线三连，近距离覆盖<br>Unguided straight 3-shot, close-range coverage |
-| **雷法 / Lightning** | 广域连锁，半径 14 丈 / 2 秒 CD<br>Wide-area chain, 14 zhang radius / 2s CD | 自动瞄准敌群中心；每多命中一个目标，连锁伤害 +60%<br>Auto-aims at enemy cluster center; +60% chain damage per extra target hit |
+| **雷法 / Lightning** | 广域连锁，半径 14 米 / 2 秒 CD<br>Wide-area chain, 14 m radius / 2s CD | 自动瞄准敌群中心；每多命中一个目标，连锁伤害 +60%<br>Auto-aims at enemy cluster center; +60% chain damage per extra target hit |
 
 > 开启自动斗法（`F`）后，游戏会实时按射程与敌群密度评分选法术：
 > 散兵用火球/冰剑，3 个以上聚团则优先雷法。

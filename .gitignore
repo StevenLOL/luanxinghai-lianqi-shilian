@@ -52,3 +52,5 @@ scripts/.forge_token.json
 wechat-minigame/
 scripts/31_build_minigame.js
 scripts/32_smoke_minigame.js
+# v2.23 花海飞行原作源码（第三方开源，仅本地参考，不入库）
+reference/
