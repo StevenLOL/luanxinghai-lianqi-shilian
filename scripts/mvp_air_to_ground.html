@@ -125,6 +125,37 @@ function fbm(x,z){
   for(let i=0;i<5;i++){sum+=amp*valueNoise(x*f,z*f);norm+=amp;amp*=0.5;f*=2;}
   return sum/norm;
 }
+
+/* ===== v2.24：News Flight 原作地形信号（一比一移植自 world.js 的 GLSL）=====
+   原作视觉全部建立在 nf_hash/nf_noise/nf_fbm 这套信号上；这里给出逐字等价的
+   CPU 版，保证地形形态、斑块分布与原作一致。只用于视觉层，绝不碰碰撞 terrainH。 */
+/* 原作 nf_hash 用 sin(dot)*43758；这里用整数 hash2 等价替代（同为确定性 value
+   noise，形态一致），避免每采样 4 次 Math.sin —— 细分后每帧上万次采样，性能关键。 */
+function nfNoise(x,z){ return valueNoise(x,z); }
+function nfFbm(x,z){ let a=0.5,s=0; for(let i=0;i<4;i++){s+=a*valueNoise(x,z);x*=2.03;z*=2.03;a*=0.5;} return s; }
+const nfSS=(e0,e1,x)=>{const t=Math.max(0,Math.min(1,(x-e0)/(e1-e0)));return t*t*(3-2*t);};
+function nfLerp(a,b,t){return a+(b-a)*t;}
+// 原作 meadowH：三段正弦缓波（无阶梯），这是花海起伏形态的来源
+function nfMeadowH(x,z){
+  return 1.6*Math.sin(x*0.013+1.3)*Math.cos(z*0.011)
+       + 0.9*Math.sin((x+z)*0.027)
+       + 0.5*Math.sin(x*0.051-z*0.043);
+}
+// 原作海湾：内陆缓坡 → 沙丘 → 沙滩 → 绿松石浅海 → 深海 + 三座沙洲
+const NF_ISLETS=[[-70,-318,27],[32,-352,22],[118,-282,25]];
+function nfShoreZ(x){ return -120+28*Math.sin(x*0.011+0.6)+9*Math.sin(x*0.037+2.0); }
+function nfSeaFloor(s){ return -3*(1-Math.exp(-s/30))-Math.max(0,s-45)*0.085; }
+function nfBayH(x,z){
+  const s=nfShoreZ(x)-z;                                  // >0 在海，<0 内陆
+  const inland=2.4+0.5*nfMeadowH(x,z);
+  const dune=1.25+0.55*Math.sin(x*0.11+0.3)*Math.cos(z*0.09)+0.25*Math.sin(x*0.31+z*0.17);
+  let h=nfLerp(inland,dune,nfSS(-34,-20,s));
+  const b=s<0?-0.11*s:nfSeaFloor(s);
+  h=nfLerp(h,b,nfSS(-16,-8,s));
+  for(const [cx,cz,r] of NF_ISLETS) h=Math.max(h,0.75-1.4*((x-cx)**2+(z-cz)**2)/(r*r));
+  return h;
+}
+function nfVegFlower(x,z){ return 1-nfSS(-30,-21,nfShoreZ(x)-z); }
 // 大陆轮廓：>0 陆地，<0 海洋。保留原点附近为陆地，远处有海。
 function continent(x,z){
   return fbm(x*0.0032+16.0,z*0.0032-22.0)*1.8-0.72
@@ -152,6 +183,23 @@ function terrainH(x,z){
   return 25+Math.floor((c-0.60)/0.08)*2.5;                 // 雪顶 3 级
 }
 function isSea(x,z){ return terrainH(x,z)<0; }
+
+/* v2.24 视觉高度 visualH：与 terrainH 同海陆格局、同数值量级（贴地关系不变），
+   但把阶梯 Math.floor 抹成连续，并叠加原作 meadowH 的三段缓波 —— 于是画面上
+   是连绵起伏的花海丘陵，而不是一级一级的台地台阶。碰撞/敌人/技能仍走 terrainH。 */
+const VIS_RELIEF=1.9;                       // 原作缓波起伏幅度（世界单位）
+function visualH(x,z){
+  const c=continent(x,z);
+  let base;
+  if(c<0) base=-1+c*10;
+  else if(c<0.035) base=0.8+c*20;
+  else if(c<0.42) base=2+(c/0.05)*1.6;      // 连续化（原为 floor 阶梯）
+  else if(c<0.60) base=16+((c-0.42)/0.045)*2.2;
+  else base=25+((c-0.60)/0.08)*2.5;
+  // 只在陆地叠加缓波；海面保持平滑（避免海浪台阶）
+  const land=c>=0?1:0;
+  return base+land*nfMeadowH(x,z)*VIS_RELIEF;
+}
 
 /* ---------- 角色素材 ---------- */
 const sprites={};
@@ -229,13 +277,16 @@ const FORGE_MAT_TOP=[
   [246,250,255],[214,226,244]
 ];
 const FORGE_HAZE=[188,224,246];
-/* v2.23 花海融合：视觉取自 Huixin Dong 的 News Flight（MIT Petalwake 风格），
-   用 Canvas 2D 在既有高度场上重绘「粉色花田 + 暖色黄昏 + 飞过扬起的花瓣」。
-   只改视觉层，不改 terrainH 高度场与任何碰撞/战斗逻辑。
-   MEADOW_MAT 索引与 FORGE_MAT_TOP 的草地段(6..11)一一对应，用于花田色块。 */
-const MEADOW_MAT=[[150,205,110],[126,188,92],[196,214,150],[244,196,214],
-                  [236,164,196],[214,138,178]];
-const PETAL_COLORS=['#f7a8c9','#fbcfe1','#ffffff','#ec6fa6','#f9b6d2','#ffe3ef'];
+/* v2.24 花海重制：忠实移植 Huixin Dong「News Flight」golden 模式配色
+   （视觉致敬 MIT Jacob Miller 的 Petalwake）。只改视觉层，terrainH 高度场
+   与任何碰撞/战斗逻辑保持不变。参考原作 world.js：
+   pink #f08cbc / pink2 #fbd0e2，zenith #30589a / mid #9c9fc0 /
+   horizon #f7c597，fog #f2caa4，花朵 7 色。 */
+const MEADOW_MAT=[[47,122,28],[94,165,44],[127,207,60],    // 0..2 草绿底
+                  [240,140,188],[251,208,226],[248,143,184],[253,231,240]]; // 3..6 粉花田
+const MEADOW_HAZE=[242,202,164];        // 暖粉雾（原作 golden fog）
+const FLOWER_COLORS=['#f48fb8','#f7a8c9','#fbcfe1','#ffffff','#ec6fa6','#f9b6d2','#fde7f0'];
+const PETAL_COLORS=FLOWER_COLORS;
 /* v2.7：1 号技能改为金色剑气（与脚下青蓝御剑、火球橙红、冰剑蓝白区分）。
    type:'bolt' 走投射物系统；type:'zone' 走区域持续法术（雷法）。 */
 const SPELLS = {
@@ -278,7 +329,7 @@ function inheritVec(vel,k,cap,out){
 /* v2.23 花瓣尾流：主角贴花海低空飞行时，身后扬起花瓣。
    继承主角速度的一部分（复用 v2.22 的 player.vel），低速不撒、高速更密。
    用累加器限流，避免每帧刷粒子拖垮帧率。 */
-const PETAL_RATE=16;        // 每秒花瓣数（满速时）
+const PETAL_RATE=34;        // 每秒花瓣数（v2.24 加倍，原作 Petalwake 尾流更浓密）
 let petalAcc=0;
 function petalWake(dt){
   const v=player.vel||{x:0,y:0,z:0};
@@ -2105,21 +2156,22 @@ function killerLabel(ident){
  * 渲染
  * ============================================================ */
 function drawSky(){
-  /* v2.23 花海黄昏：八段暖色天，地平线奶油粉、天顶灰蓝紫，
-     低空一条暖橘雾带，呼应 News Flight 的花海落日。 */
-  const stops=[[168,178,214],[230,190,196],[255,224,186]];
-  const N=8;
+  /* v2.24：忠实 News Flight golden 天色——天顶深蓝 #30589a、中层灰紫
+     #9c9fc0、地平线暖橘 #f7c597。更多分段做平滑过渡，避免色带。 */
+  const stops=[[48,88,154],[92,110,160],[156,159,192],[214,174,168],[247,197,151]];
+  const N=16;
   for(let i=0;i<N;i++){
     const t=1-i/(N-1);                       // i=0 是画面顶部
-    const a=t<0.5?stops[0]:stops[1], b=t<0.5?stops[1]:stops[2];
-    const f=t<0.5?t*2:t*2-1;
+    const seg=Math.min(stops.length-2,Math.floor(t*(stops.length-1)));
+    const a=stops[seg], b=stops[seg+1];
+    const f=t*(stops.length-1)-seg;
     const col=[0,1,2].map(k=>Math.round(a[k]+(b[k]-a[k])*f));
     ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
     ctx.fillRect(0,i*H/N,W,H/N+1);
   }
-  // 暖橘雾带：近地平线一段柔和的 peach haze
-  ctx.fillStyle='rgba(255,214,178,0.30)';
-  ctx.fillRect(0,H*0.60,W,H*0.18);
+  // 暖粉雾带：近地平线一段柔和的 golden haze
+  ctx.fillStyle='rgba(242,202,164,0.26)';
+  ctx.fillRect(0,H*0.58,W,H*0.20);
   drawSun();
 }
 /* v2.10：太阳固定在世界天球的一个方向（不再是屏幕贴片）。
@@ -2135,47 +2187,132 @@ function drawSun(){
   const p=project(far);
   if(!p)return;                                  // 背对太阳：不可见
   const r=Math.max(20,Math.min(W,H)*0.036);
-  const g=ctx.createRadialGradient(p.x,p.y,r*0.2,p.x,p.y,r*2.5);
-  g.addColorStop(0,'rgba(255,250,228,0.95)');
-  g.addColorStop(0.38,'rgba(255,246,208,0.5)');
-  g.addColorStop(1,'rgba(255,240,198,0)');
-  ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,r*2.5,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='rgba(255,251,232,0.92)';ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();
+  const g=ctx.createRadialGradient(p.x,p.y,r*0.2,p.x,p.y,r*3.2);
+  g.addColorStop(0,'rgba(255,239,200,0.95)');       // 原作 sun #ffcf8a 暖橘
+  g.addColorStop(0.34,'rgba(255,207,138,0.55)');
+  g.addColorStop(1,'rgba(255,207,138,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,r*3.2,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(255,246,220,0.95)';ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();
 }
+/* v2.24：花海连续色场。原作用「噪声 mask 连续混合草绿/粉花」，而不是离散色块。
+   - 海面只保留 deep<-4 的深水，且改成原作 golden 的青绿浅滩/深海蓝；
+     浅海(-4..0)与沙滩(0..1.6)也铺上花，消除原来占半屏的纯蓝海。
+   - 草地用 valueNoise 连续插值草绿↔粉，保留阶梯明暗，彻底去掉棋盘格。 */
+function flowerMix(x,z){
+  // 原作 makeFlowers 的 mask：smoothstep(0.26,0.42, fbm(W*0.035))
+  return nfSS(0.26,0.42,nfFbm(x*0.035,z*0.035));
+}
+/* v2.24 原作地表着色一比一移植（world.js makeGround 片元着色器）：
+   patchN=fbm(W*.035) 决定粉斑；近处 speck 点状撒粉、远处 farPink 连续混合；
+   green=mix(G1,G2,fbm(W*.18))；pink=mix(P1,P2,noise(W*.6+3)*.7+speck*.3)；
+   最后乘 lit=0.72+0.38*dot(N,sun)。这里逐条复刻，色值用原作 golden 调色板。 */
+const NF_G1=[47,122,28],NF_G2=[94,165,44];       // groundGreen / groundGreen2
+const NF_P1=[240,140,188],NF_P2=[251,208,226];    // pink / pink2
+const NF_SAND=[236,220,180],NF_SANDWET=[194,167,124],NF_SEABED=[217,199,156];
+const NF_SUN=V.norm({x:-0.3,y:0.13,z:-0.95});     // 原作 golden sunDir
+const NF_CAMX=()=>cam.pos.x,NF_CAMZ=()=>cam.pos.z;
 function terrainColor(x,z,h,dist,sea){
-  const hs=hash2(x|0,z|0);
-  const slope=continentFast(x-30,z+15)-continentFast(x+30,z-15);
-  let m;
-  if(sea){
-    m=h<-3?0:(h<-1.5?1:2);
-    if(h>-0.8&&hs>0.93)m=3;                        // 稀疏浪花，不做棋盘
-  }else if(h<1.6){
-    m=hs<0.12?5:4;                                 // 沙滩 / 少量沙斑
-  }else if(h<10){
-    /* v2.23 花田：按「位置噪声」而非纯坡度选色，形成粉/白/绿的花海斑块，
-       同一斑块内仍按坡度取亮/中/暗三档，保留阶梯立体感。 */
-    const patch=valueNoise(x*0.02+31,z*0.02-17);   // 0..1 的大尺度花斑
-    let band=patch<0.30?0:(patch<0.52?3:(patch<0.72?4:5)); // 绿/粉白/粉/浅粉
-    if(h>=7)band=0;                                 // 高台留绿，避免花粉爬上雪线
-    m=6+band+(slope>0.02?0:(slope<-0.02?1:0));     // 映射到 FORGE_MAT_TOP 6..11
-    const flower=MEADOW_MAT[band];
-    const shade=slope<-0.02?0.88:(slope>0.02?1.06:1);
-    const fog=clamp((dist-170)/430,0,0.78);
-    const hz=FORGE_HAZE;
-    return [0,1,2].map(k=>Math.round(flower[k]*shade*(1-fog)+hz[k]*fog));
-  }else if(h<16){
-    m=slope>0.03?13:(hs>0.92?14:12);               // 岩石按坡面着色
-  }else{
-    m=slope>0.02?16:15;                            // 雪的明暗面
+  const patchN=nfFbm(x*0.035,z*0.035);
+  const patchK=nfSS(0.34,0.62,patchN);
+  const far=nfSS(26,90,dist);
+  /* v2.24 性能关键：单格平涂若用原作高频噪声（green fbm*.18 / pink noise*.6），
+     相邻格中心采样差异极大 → 大块棋盘。这里把着色噪声降到低频（周期 > 格宽），
+     让相邻格颜色连续过渡；细密的花朵质感交给 drawCellFlowers 的花瓣实例。 */
+  const gn=nfFbm(x*0.030+5,z*0.030-7);
+  const pn=nfNoise(x*0.055+3,z*0.055+3);
+  const nearPink=0.05+0.55*patchK;                  // 近处：patchK 花斑决定粉晕
+  const farPink=0.72+0.26*patchK;                   // 远处：连续粉花海
+  const pinkAmt=nfLerp(nearPink,farPink,far);
+  const green=[0,1,2].map(k=>nfLerp(NF_G1[k],NF_G2[k],gn));
+  const pink =[0,1,2].map(k=>nfLerp(NF_P1[k],NF_P2[k],pn));
+  let base=[0,1,2].map(k=>nfLerp(green[k],pink[k],Math.max(0,Math.min(1,pinkAmt))));
+  // 海湾：沙丘 / 湿沙 / 海床（原作 NF_BAY 分支）
+  const c=continentFast(x,z);
+  if(c<0 || (c>=0&&c<0.035)){
+    const grain=nfNoise(x*3.1,z*3.1)*0.5+nfNoise(x*0.45,z*0.45)*0.5;
+    const wet=1-nfSS(0.05,0.45,h);
+    if(c<0){
+      // 海床：按深度从湿沙过渡到 seabed，浅水更亮
+      const dep=Math.max(0,-h);
+      base=[0,1,2].map(k=>nfLerp(NF_SANDWET[k],NF_SEABED[k]*0.9,nfSS(0,5,dep))*(0.92+0.12*grain));
+    }else{
+      // 沙滩：湿沙→干沙，掺少量草
+      base=[0,1,2].map(k=>nfLerp(NF_SANDWET[k],NF_SAND[k],0.25*grain));
+      base=[0,1,2].map(k=>nfLerp(base[k],green[k]*1.15,wet*0.5));
+    }
   }
-  // Forge 远距雾：颜色逐步混入 hazeCol [188,224,246]
-  const fog=clamp((dist-170)/430,0,0.78);
-  const base=FORGE_MAT_TOP[m];
-  return [0,1,2].map(k=>Math.round(base[k]*(1-fog)+FORGE_HAZE[k]*fog));
+  // 法线光照 lit：用 meadowH 的解析梯度（正弦直接求导，零噪声采样，比原作数值梯度更快）
+  const ghx=1.6*0.013*Math.cos(x*0.013+1.3)*Math.cos(z*0.011)
+          +0.9*0.027*Math.cos((x+z)*0.027)+0.5*0.051*Math.cos(x*0.051-z*0.043);
+  const ghz=-1.6*0.011*Math.sin(x*0.013+1.3)*Math.sin(z*0.011)
+          +0.9*0.027*Math.cos((x+z)*0.027)-0.5*0.043*Math.cos(x*0.051-z*0.043);
+  const nx=-ghx*VIS_RELIEF,ny=1,nz=-ghz*VIS_RELIEF;
+  const nl=Math.hypot(nx,ny,nz)||1;
+  const lit=0.72+0.38*Math.max(0,(nx*NF_SUN.x+ny*NF_SUN.y+nz*NF_SUN.z)/nl);
+  base=[0,1,2].map(k=>Math.round(clamp(base[k]*lit,0,255)));
+  // 远距雾混入暖粉 haze（原作 golden fog #f2caa4）
+  const fog=clamp((dist-180)/420,0,0.82);
+  return [0,1,2].map(k=>Math.round(base[k]*(1-fog)+MEADOW_HAZE[k]*fog));
 }
 /* v2.23：原 Forge 松林改为花簇标记 —— 花海里稀疏立起的花枝，
    只在草地高度段生成，密度略高于原树林以读出「花田」感。 */
 function forgeTree(x,z,h){ return h>=2&&h<10&&hash2((x|0)+401,(z|0)-197)>0.74; }
+/* v2.24 密集花海：忠实复刻原作 News Flight 的 makeFlowers 思路——
+   每格按确定性 hash 撒多朵花，双线性插值贴地，随风摆动（gust + 正弦），
+   被 riding 尾流压弯；近处画五瓣+花心，远处退化为单色点做 LOD。
+   只在此前已生成的地形格内绘制，沿用 depth 排序保证前后遮挡正确。 */
+function drawCellFlowers(c){
+  if(c.sea && c.h<-4) return;            // 深水不撒花
+  if(c.h>=10.5) return;                  // 雪顶不放花
+  const step=QUALITY.step, t=game.time;
+  let n=c.depth<70?12:(c.depth<140?8:(c.depth<260?5:3));
+  if(QUALITY.adaptive===2)n=Math.max(1,(n*0.5)|0);
+  else if(QUALITY.adaptive===1)n=Math.max(1,(n*0.72)|0);
+  const y00=c.cy[0],y10=c.cy[1],y01=c.cy[3],y11=c.cy[2];
+  // 尾流压弯：靠近主角且高速时，花向速度反方向倾倒
+  const pv=player.vel||{x:0,y:0,z:0};
+  const spd=Math.hypot(pv.x,pv.z);
+  for(let k=0;k<n;k++){
+    const u=hash2(c.i*37+k*13+5,c.j*53-k*7+11);
+    const v=hash2(c.i*19-k*29+3,c.j*31+k*17+7);
+    const wx=c.x0+u*step, wz=c.z0+v*step;
+    const wy=(y00*(1-u)+y10*u)*(1-v)+(y01*(1-u)+y11*u)*v;
+    const stem=0.35+hash2(c.i+k*3,c.j+k*5)*0.5;
+    // 风摆：低频 gust + 位置相位正弦（原作 sway 两分量）
+    const ph=wx*0.06+wz*0.045;
+    const gust=0.5+0.5*Math.sin(t*0.7+ph);
+    const swX=(0.55*(0.2+0.8*gust)*0.5+0.12*Math.sin(t*2.1+ph))*stem;
+    const swZ=(0.22*(0.2+0.8*gust)*0.5+0.10*Math.cos(t*1.7+ph))*stem;
+    let bx=wx+swX, bz=wz+swZ, by=wy+stem;
+    if(spd>10){
+      const dd=Math.hypot(wx-player.pos.x,wz-player.pos.z);
+      if(dd<14){const push=(1-dd/14)*clamp(spd/40,0,1)*stem;bx-=pv.x/spd*push;bz-=pv.z/spd*push;by-=push*0.6;}
+    }
+    const p=project({x:bx,y:by,z:bz});
+    if(!p)continue;
+    const f=flowerMix(wx,wz);
+    let ci=f<0.22?(hash2(c.i*7+k,c.j*7+k)*3)|0
+             :(3+(hash2(c.i*11+k,c.j*13+k)*(FLOWER_COLORS.length-3))|0);
+    if(ci>=FLOWER_COLORS.length)ci=FLOWER_COLORS.length-1;
+    const col=FLOWER_COLORS[ci];
+    const r=clamp(p.s*(0.30+stem*0.25),0.5,6);
+    if(r<1.4){                            // 远景：单色方点（最快）
+      ctx.fillStyle=col;
+      const d=Math.max(1,r*1.3);ctx.fillRect(p.x-d*0.5,p.y-d*0.5,d,d);
+    }else if(r<3.2){                      // 中景：椭圆花瓣 + 花心
+      ctx.fillStyle=col;ctx.beginPath();ctx.ellipse(p.x,p.y,r*0.95,r*0.62,0,0,6.283);ctx.fill();
+      ctx.fillStyle='#ffe29a';ctx.beginPath();ctx.arc(p.x,p.y,r*0.3,0,6.283);ctx.fill();
+    }else{                                // 近景：五瓣 + 花心
+      ctx.fillStyle=col;
+      const a0=hash2(c.i+k,c.j-k)*6.283;
+      for(let q=0;q<5;q++){
+        const ang=a0+q*1.2566;
+        ctx.beginPath();ctx.ellipse(p.x+Math.cos(ang)*r*0.62,p.y+Math.sin(ang)*r*0.62,r*0.5,r*0.34,ang,0,6.283);ctx.fill();
+      }
+      ctx.fillStyle='#ffe29a';ctx.beginPath();ctx.arc(p.x,p.y,r*0.3,0,6.283);ctx.fill();
+    }
+  }
+}
 function drawTerrain(){
   // v2.13：自适应降档只改覆盖格数，不改变格子边长（保持 Forge 阶梯轮廓）
   const step=QUALITY.step;
@@ -2185,15 +2322,22 @@ function drawTerrain(){
      32×32 格 = 4096 次噪声；预计算 (2r+1)^2 个格点后只需 1089 次。
      注意 range 是半宽：格数 (2*range)^2，角点数 (2*range+1)^2。 */
   const g=range*2+1;
-  if(!drawTerrain._H||drawTerrain._H.length!==g*g)drawTerrain._H=new Float32Array(g*g);
-  const H=drawTerrain._H, ox=(cx-range)*step, oz=(cz-range)*step;
-  for(let i=0;i<g;i++)for(let j=0;j<g;j++)H[i*g+j]=terrainH(ox+i*step,oz+j*step);
+  if(!drawTerrain._H||drawTerrain._H.length!==g*g){
+    drawTerrain._H=new Float32Array(g*g);drawTerrain._VH=new Float32Array(g*g);
+  }
+  const H=drawTerrain._H,VH=drawTerrain._VH, ox=(cx-range)*step, oz=(cz-range)*step;
+  /* v2.24：H 仍是碰撞高度 terrainH（sea 判定/着色/贴地关系不变）；
+     VH 是原作缓波视觉高度 visualH，只用于网格顶点与花朵贴地。 */
+  for(let i=0;i<g;i++)for(let j=0;j<g;j++){
+    const wx=ox+i*step,wz=oz+j*step;
+    H[i*g+j]=terrainH(wx,wz);VH[i*g+j]=visualH(wx,wz);
+  }
   const cells=drawTerrain._cells||(drawTerrain._cells=[]); cells.length=0;
   // 必须遍历 2*range 格（原版 i=-range..range-1），早期误写 i<range 导致地图只剩左半边
   for(let i=0;i<range*2;i++)for(let j=0;j<range*2;j++){
     const x0=ox+i*step,z0=oz+j*step,x1=x0+step,z1=z0+step;
-    const corners=[{x:x0,y:H[i*g+j],z:z0},{x:x1,y:H[(i+1)*g+j],z:z0},
-                   {x:x1,y:H[(i+1)*g+j+1],z:z1},{x:x0,y:H[i*g+j+1],z:z1}];
+    const corners=[{x:x0,y:VH[i*g+j],z:z0},{x:x1,y:VH[(i+1)*g+j],z:z0},
+                   {x:x1,y:VH[(i+1)*g+j+1],z:z1},{x:x0,y:VH[i*g+j+1],z:z1}];
     const mx=(x0+x1)/2,mz=(z0+z1)/2,my=terrainH(mx,mz);
     // 内联点积，避免每格 3 个临时对象
     const depth=(mx-cam.pos.x)*cam.f.x+(my-cam.pos.y)*cam.f.y+(mz-cam.pos.z)*cam.f.z;
@@ -2202,33 +2346,50 @@ function drawTerrain(){
     /* v2.13 实测：这里曾加屏幕包围盒剔除（少画约 840 格），
        但 V8 对含该 continue 分支的循环反复 deopt，drawTerrain 反而从
        1.6ms 涨到 11.6ms。已移除——少画格子不等于更快。 */
-    cells.push({pr,depth,h:my,sea:my<0,mx,mz,x0,z0,
+    cells.push({pr,depth,h:my,sea:my<0,mx,mz,x0,z0,i,j,
+                cy:[VH[i*g+j],VH[(i+1)*g+j],VH[(i+1)*g+j+1],VH[i*g+j+1]],
                 tree:QUALITY.trees&&forgeTree(mx,mz,my)});
   }
   cells.sort((a,b)=>b.depth-a.depth);
   for(const c of cells){
-    const col=terrainColor(c.mx,c.mz,c.h,c.depth,c.sea);
-    let fill=`rgb(${col[0]},${col[1]},${col[2]})`;
-    if(c.sea&&c.h>-4){
-      const wave=0.5+0.5*Math.sin(game.time*1.6+c.mx*0.05+c.mz*0.04);
-      fill=`rgba(${col[0]},${col[1]+Math.round(wave*14)},${col[2]+Math.round(wave*18)},0.96)`;
+    /* v2.24：原作是逐像素连续着色，整格平涂会出现大色块棋盘。这里把每格
+       细分成 3×3 子块，子块中心另行采样 terrainColor，屏幕顶点用格子四角
+       双线性插值（单格内透视非线性可忽略），显著消除色块感而不增加 project 调用。 */
+    const SUB=1;   // v2.24：回到单格填充，靠低频着色噪声消除色块（细分太耗帧率）
+    const step=QUALITY.step, sub=step/SUB;
+    const p0=c.pr[0],p1=c.pr[1],p2=c.pr[2],p3=c.pr[3];
+    for(let si=0;si<SUB;si++)for(let sj=0;sj<SUB;sj++){
+      const u0=si/SUB,u1=(si+1)/SUB,v0=sj/SUB,v1=(sj+1)/SUB;
+      // 四角屏幕坐标（格内按 u=i 方向、v=j 方向双线性）
+      const P=(u,v)=>({
+        x:nfLerp(nfLerp(p0.x,p1.x,u),nfLerp(p3.x,p2.x,u),v),
+        y:nfLerp(nfLerp(p0.y,p1.y,u),nfLerp(p3.y,p2.y,u),v)
+      });
+      const a=P(u0,v0),b=P(u1,v0),d=P(u1,v1),e=P(u0,v1);
+      // 子块中心的世界坐标与碰撞高度（用于着色）
+      const wx=c.x0+(si+0.5)*sub, wz=c.z0+(sj+0.5)*sub;
+      const wh=terrainH(wx,wz);
+      const dsub=Math.hypot(wx-cam.pos.x,wz-cam.pos.z);
+      const col=terrainColor(wx,wz,wh,dsub,wh<0);
+      let fill=`rgb(${col[0]},${col[1]},${col[2]})`;
+      if(wh<0&&wh>-4){
+        const wave=0.5+0.5*Math.sin(game.time*1.6+wx*0.05+wz*0.04);
+        fill=`rgba(${col[0]},${col[1]+Math.round(wave*14)},${col[2]+Math.round(wave*18)},0.96)`;
+      }
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(d.x,d.y);ctx.lineTo(e.x,e.y);
+      ctx.closePath();ctx.fillStyle=fill;ctx.fill();
     }
-    ctx.beginPath();ctx.moveTo(c.pr[0].x,c.pr[0].y);
-    for(let i=1;i<4;i++)ctx.lineTo(c.pr[i].x,c.pr[i].y);
-    ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-    // Forge 的阶梯边缘：用较暗边线读出一级一级的台地（移动端关闭以省 GPU）
-    if(QUALITY.edgeStroke){
-      ctx.strokeStyle=c.sea?'rgba(22,72,132,0.30)':(c.h>=16?'rgba(110,128,150,0.30)':'rgba(30,88,38,0.30)');
-      ctx.lineWidth=1;ctx.stroke();
-    }
-    // Forge 海面波光点
-    if(QUALITY.seaSparkle&&c.sea&&c.h>-3&&hash2((c.x0/25|0)+((game.time*7)|0),(c.z0/25|0)-11)>0.86){
-      const sp=project({x:c.mx,y:c.h+0.4,z:c.mz});
+    // v2.24：不再画阶梯硬边线（原作缓波花海没有台地边缘）
+    // v2.24：在已填充的地形格上撒密集花朵（沿 depth 排序，近处覆盖远处）
+    if(QUALITY.trees!==false)drawCellFlowers(c);
+    // Forge 海面波光点：只留在深水（浅海已铺花）
+    if(QUALITY.seaSparkle&&c.sea&&c.h<-4.5&&hash2((c.x0/25|0)+((game.time*7)|0),(c.z0/25|0)-11)>0.86){
+      const sp=project({x:c.mx,y:visualH(c.mx,c.mz)+0.4,z:c.mz});
       if(sp){ctx.fillStyle='rgba(226,248,255,0.9)';ctx.fillRect(sp.x,sp.y,1.6,1.6);}
     }
     // v2.23 花枝：几片花瓣 + 花心，替代原来的锥形松树（花海风格）
     if(c.tree){
-      const tp=project({x:c.mx,y:c.h+1.2,z:c.mz});
+      const tp=project({x:c.mx,y:visualH(c.mx,c.mz)+1.2,z:c.mz});
       if(tp){
         const s=clamp(tp.s*1.4,1.6,9);
         const pc=MEADOW_MAT[2+Math.abs(((c.mx|0)*7+(c.mz|0))%4)];
@@ -2401,24 +2562,22 @@ function drawClouds(){
       }
       if(keep<=0.04)continue;
       const base={x:c.x+p.dx,y:FORGE_CLOUD_ALT,z:c.z+p.dz};
-      // 底面：Forge cloudUnder [138,160,200]，压扁避免“千层蛋糕”
+      // v2.24 暖云：底面暖紫灰、侧面粉橘、顶面奶油金（原作 cloudTint #ffdcc6）
       const under=project({x:base.x,y:FORGE_CLOUD_ALT-1.4,z:base.z});
-      if(under){cctx.globalAlpha=0.42*keep;cctx.fillStyle='rgb(138,160,200)';
+      if(under){cctx.globalAlpha=0.40*keep;cctx.fillStyle='rgb(168,146,170)';
         cctx.beginPath();cctx.ellipse(under.x,under.y,Math.max(1,p.r*under.s*0.94),Math.max(1,p.r*under.s*0.20),0,0,Math.PI*2);cctx.fill();}
-      // 侧面：Forge cloudSide 的浅蓝灰，只留一层
       const side=project({x:base.x,y:FORGE_CLOUD_ALT+0.4,z:base.z});
       if(side){
         const f=p.tk/(FORGE_CK-1);
         cctx.globalAlpha=0.72*keep;
-        cctx.fillStyle=`rgb(${Math.round(158+44*f)},${Math.round(182+36*f)},${Math.round(222+18*f)})`;
+        cctx.fillStyle=`rgb(${Math.round(226+22*f)},${Math.round(186+34*f)},${Math.round(180+40*f)})`;
         cctx.beginPath();cctx.ellipse(side.x,side.y,Math.max(1,p.r*side.s*0.98),Math.max(1,p.r*side.s*0.25),0,0,Math.PI*2);cctx.fill();
       }
-      // 顶面：Forge cloudTop，越厚越亮
       const top=project({x:base.x,y:FORGE_CLOUD_ALT+1.0+p.tk*0.12,z:base.z});
       if(top){
         const ft=Math.min(1,p.tk/2);
         cctx.globalAlpha=0.95*keep;
-        cctx.fillStyle=`rgb(${Math.round(218+37*ft)},${Math.round(230+25*ft)},${Math.round(247+8*ft)})`;
+        cctx.fillStyle=`rgb(${Math.round(248+7*ft)},${Math.round(238+12*ft)},${Math.round(224+20*ft)})`;
         cctx.beginPath();cctx.ellipse(top.x,top.y,Math.max(1,p.r*top.s*0.94),Math.max(1,p.r*top.s*0.23),0,0,Math.PI*2);cctx.fill();
       }
     }
@@ -2679,7 +2838,7 @@ function drawHUD(){
   bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
   const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.23',22,titleSize+10);
+  ctx.fillText(L('title')+' v2.24',22,titleSize+10);
   // v2.8：练气等级 + 经验条
   const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
   ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);

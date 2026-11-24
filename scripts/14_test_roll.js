@@ -77,15 +77,21 @@ async function main() {
   // 5. v2.16：CD 语义改为 0.5 秒 ⇒ 翻滚中再按 J 是「连段」（合法），不再是无效操作。
   //    这里分两种时机验证：
   //    5a. CD 尚未转好时按 J → 依然无效（CD 不被重置）
-  await keyJ();                       // 距上次按键仅 60ms，CD 仍约 0.44s
+  // v2.24：渲染变慢使 CDP 按键往返多耗几十 ms，强制 CD 到明确未转好值以隔离时序抖动
+  await ev('player.cds.roll=0.42;');
+  await keyJ();                       // CD 明确未转好时应无效
   await sleep(50);
   const stillOne = await ev('player.cds.roll');
   const segNow = await ev('(player.roll&&player.roll.seg)||0');
-  ok('CD 未转好时按 J 无效（段数不增、CD 不重置）', segNow === 1 && stillOne < cd,
+  ok('CD 未转好时按 J 无效（段数不增、CD 不重置）', segNow === 1 && stillOne < 0.42,
      `seg=${segNow} cds.roll=${stillOne.toFixed(2)}（应继续递减，未重置为 0.5）`);
 
   // 5b. CD 转好后（< 翻滚时长 1.05s）再按 J → 连段，段数递增
-  await sleep(520);
+  //     v2.24：重置到干净的翻滚中状态，避免 5a 的时序消耗让翻滚窗口过期
+  await ev('player.roll=null;player.cds.roll=0;player.qi=200;');
+  await keyJ();
+  await sleep(60);
+  await ev('player.cds.roll=0;');    // CD 明确转好
   await keyJ();
   await sleep(60);
   const chained = await ev('({roll:!!player.roll,seg:(player.roll&&player.roll.seg)||0})');
