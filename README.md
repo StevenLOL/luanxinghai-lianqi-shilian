@@ -27,6 +27,21 @@
 
 ![战斗画面：御剑飞行与自动斗法](docs/screenshots/01-gameplay.png)
 
+### 花海与海湾 / Flower Sea & Bay
+
+![草地、沙滩与绿松石浅海](docs/screenshots/10-bay-v225.png)
+
+### 海岸线 / Shoreline
+
+![海湾、沙滩与碎浪](docs/screenshots/12-shore-v225.png)
+
+### 花海尾流 / Petal Wake
+
+低空掠过花海时，花朵被气流压弯、花瓣从身后卷起并拖出流线。
+Skimming the meadow bends the flowers and pulls petals into a trailing wake.
+
+![低空飞行的花海尾流](docs/screenshots/11-wake-v225.png)
+
 ### 麒麟 Boss 战 / Qilin Boss Fight
 
 ![麒麟 Boss 战](docs/screenshots/02-boss.png)

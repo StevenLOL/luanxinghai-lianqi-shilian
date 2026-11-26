@@ -24,6 +24,8 @@
        background:rgba(24,60,54,.28);border:2px solid rgba(190,240,220,.55);}
   #joyKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;
        border-radius:50%;background:rgba(160,230,210,.62);border:2px solid rgba(240,255,250,.8);}
+  #joyTag{position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);
+       font:11px/1.2 "Microsoft YaHei";color:rgba(226,248,240,.72);white-space:nowrap;}
   #tb{right:14px;bottom:22px;display:grid;grid-template-columns:repeat(2,72px);gap:10px;}
   #tb button{width:72px;height:64px;border-radius:14px;border:2px solid rgba(235,255,248,.7);
        background:rgba(24,60,54,.55);color:#eefbf5;font:bold 17px/1.1 "Microsoft YaHei";
@@ -32,13 +34,68 @@
        border-color:rgba(232,204,255,.8);}
   #tb button.cool{opacity:.5;}
   #tb button small{display:block;font-size:11px;font-weight:normal;opacity:.85;}
+  /* v2.33：矮横屏（手机横握 + 浏览器地址栏）竖向只有 300~340px，
+     212px 高的按钮组会顶到顶部，把右侧整条挤满。压缩到 172px，
+     触摸目标仍有 52px（≥44px 推荐值）。 */
+  @media (max-height:430px) and (orientation:landscape){
+    #tb{grid-template-columns:repeat(2,62px);gap:8px;right:12px;bottom:16px;}
+    #tb button{width:62px;height:52px;font-size:15px;border-radius:12px;}
+    #tb button#tbRoll{width:132px;}
+  }
+  /* v2.36：技能条压缩成图标按钮（剑/火/冰/雷 + 状态点），一排只占约 150px；
+     旁边挂宗门坊市入口并显示灵石余额。竖屏挪到右上角，不再压住 HUD。 */
+  #topBar{position:fixed;left:50%;top:5px;transform:translateX(-50%);z-index:9;
+      display:flex;align-items:center;gap:6px;touch-action:none;}
+  #spellBar{display:flex;gap:3px;touch-action:none;}
+  #spellBar button{min-width:30px;height:21px;padding:0 3px;border-radius:6px;
+      border:1px solid rgba(220,255,240,.62);background:rgba(24,60,54,.68);
+      color:#f1fff7;font:bold 11px/1 "Microsoft YaHei";cursor:pointer;touch-action:none;}
+  #spellBar button b{font-weight:normal;margin-left:1px;font-size:9px;color:#9fe8c8;}
+  #spellBar button.off{border-color:rgba(200,205,205,.45);background:rgba(30,42,42,.55);opacity:.6;}
+  #spellBar button.off b{color:#d9a8a8;}
+  #spellBar button.cool{opacity:.42;}
+  #shopBtn{min-width:52px;height:21px;padding:0 6px;border-radius:6px;
+      border:1px solid rgba(255,212,94,.78);background:rgba(84,62,30,.76);
+      color:#ffe9a8;font:bold 11px/1 "Microsoft YaHei";cursor:pointer;touch-action:none;}
+  #shopBtn b{font-weight:normal;color:#ffd45e;}
+  @media (max-width:480px) and (orientation:portrait){
+    #topBar{left:auto;right:8px;transform:none;top:5px;}
+  }
+  /* v2.37：试炼目标 / 师尊传音。达成条件后浮在右上，避开左上 HUD 与右下雷达。 */
+  #goalPanel{display:none;position:fixed;right:12px;top:152px;z-index:11;width:218px;
+       padding:8px 9px;border-radius:10px;border:1px solid rgba(255,212,94,.62);
+       background:rgba(18,34,31,.88);color:#f4efe2;touch-action:none;
+       box-shadow:0 6px 22px rgba(0,0,0,.25);}
+  #goalPanel.show{display:block;}
+  #goalStory{font:12px/1.45 "Microsoft YaHei";color:#ffe9a8;margin-bottom:7px;}
+  #goalActions{display:flex;gap:6px;}
+  #goalActions button,#goalBadge{border:1px solid rgba(255,212,94,.7);border-radius:7px;
+       background:rgba(96,70,28,.86);color:#fff3c8;font:bold 11px/1.2 "Microsoft YaHei";
+       padding:7px 6px;cursor:pointer;touch-action:none;}
+  #goalActions button:first-child{flex:1;}
+  #continueBtn{background:rgba(38,72,64,.86);border-color:rgba(143,224,204,.6);color:#d8fff0;}
+  #goalBadge{display:none;width:100%;}
+  #goalPanel.badge #goalStory,#goalPanel.badge #goalActions{display:none;}
+  #goalPanel.badge #goalBadge{display:block;}
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="topBar">
+  <div id="spellBar" aria-label="技能自动使用开关"></div>
+  <button id="shopBtn" aria-label="打开宗门坊市">坊市 <b id="stoneNum">0</b></button>
+</div>
+<div id="goalPanel" aria-label="试炼目标达成提示">
+  <div id="goalStory">师尊传音：「圆满已至，灵石满万。归山门，受筑基之道。」</div>
+  <div id="goalActions">
+    <button id="returnBtn" type="button">返回宗门 (T)</button>
+    <button id="continueBtn" type="button">继续历练</button>
+  </div>
+  <button id="goalBadge" type="button">★ 可返宗门 (T)</button>
+</div>
 <div id="loading">山海素材载入中…</div>
-<div id="tip">W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · R 重来</div>
-<div id="joy" class="touch-ui"><div id="joyKnob"></div></div>
+<div id="tip">W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · G 坊市 · 空格 俯冲 · T 返宗门 · R 重来</div>
+<div id="joy" class="touch-ui"><div id="joyKnob"></div><div id="joyTag">自动前进 · 下拉刹车</div></div>
 <div id="tb" class="touch-ui">
   <button data-act="altUp">升<small>高度</small></button>
   <button data-act="altDown">降<small>高度</small></button>
@@ -46,7 +103,14 @@
 </div>
 <script>
 /* ============================================================
- * 御剑·空对地 MVP v2.16 — 气血随时回 / 剑舞连段 / Kill Cam 子弹时间
+ * 御剑·空对地 MVP v2.39 — 青云宗秘境试炼 / 返宗门通关
+ * v2.39 修正：坊市灵石余额与已购功法改为「本局状态」，重开/刷新一律归零，
+ * 不再跨局保留（此前理解错误）。历史成就仅由青云宗炼气榜记录。
+ * v2.38 修复：云与岸沫加入视线遮挡（不再隔山透出）/ 重开清空本局 UI 状态 /
+ * 返宗徽标一步直达结算并进入青云宗炼气榜。
+ * 相对 v2.36：① 开场演绎师尊剧情：炼气圆满 + 灵石一万方可返宗晋升筑基
+ *             ② HUD 常驻试炼目标；达成后弹出「返宗门 / 继续历练」并可随时按 T 返宗
+ *             ③ 青云宗炼气榜记录返宗通关标记与用时，通关记录优先排名
  * 定位：docs/009 P0 手感验证原型（非生产版）
  * 相对 v2.15：① 气血恢复去掉 3 秒硬门槛，改为「随时生效」，HUD 显示值 = 真实速率
  *             ② 剑舞·万象改为耗 20 灵力 / 0.5 秒冷却，并支持连段（连续机动）
@@ -58,24 +122,42 @@
  * ============================================================ */
 
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+let ctx = canvas.getContext('2d');
 let W, H, focal;
 const FOV = 62 * Math.PI / 180;
 /* v2.13 自适应质量档：手机默认降档，运行期再按帧时微调。
    格子边长 step 不变（保持 Forge 阶梯地形观感），只缩小覆盖格数 range。 */
 const IS_TOUCH = (window.matchMedia&&matchMedia('(pointer:coarse)').matches) ||
   /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+/* v2.29 触屏油门映射（v2.30 抽成函数，回归测试直接断言这条映射）：
+   静止 = 1.0（W 常开），上推最多 1.30，下拉到 -1 即刹车停在原地。 */
+function touchThrottle(axis){
+  return clamp(1+(axis>0?Math.min(axis,1)*0.30:Math.max(axis,-1)),-1,1.30);
+}
 const DPR_CAP = 1.5;                        // 桌面 Retina 与手机统一封顶 1.5（3x 全量是 9 倍像素，不划算）
 const QUALITY = {
-  step:25, range:IS_TOUCH?12:16,
+  step:25, range:IS_TOUCH?11:14,
   cloudRank:IS_TOUCH?6:9, cloudScale:IS_TOUCH?0.7:1,
-  edgeStroke:!IS_TOUCH, seaSparkle:!IS_TOUCH, trees:!IS_TOUCH,
+  edgeStroke:!IS_TOUCH, seaSparkle:!IS_TOUCH, trees:true,
+  terrPx:26,                                 // 目标子面片边长（屏幕像素），越小越平滑越贵
+  terrMax:3,                                 // 单格最多细分级数
+  groundScale:3,                             // 地面底色渲染降采样倍数（越大越柔越省）
   adaptive:0                                 // 0=满档, 1/2=运行期降档
 };
 window.__QUALITY=QUALITY;                    // 供性能剖析脚本读取
 // v2.6：云单独画在离屏画布上，才能用 destination-out 把穿云通道真正抠掉。
 const cloudLayer=document.createElement('canvas');
 const cctx=cloudLayer.getContext('2d');
+/* v2.27：地面底色/水面先画进 1/3 分辨率的离屏画布，再双线性放大回屏幕。
+   逐格平面块之间总有硬色边，降采样+插值放大把它们揉成连续渐变 —— 这是
+   在 Canvas2D 里最接近"逐像素着色"的廉价做法。 */
+let GQ=null,TERR_SCALE=1;
+function groundBuffer(scale){
+  const w=Math.max(64,Math.ceil(W/scale)),h=Math.max(48,Math.ceil(H/scale));
+  if(!GQ)GQ=document.createElement('canvas');
+  if(GQ.width!==w||GQ.height!==h){GQ.width=w;GQ.height=h;}
+  return GQ;
+}
 function resize(){
   // v2.13：canvas 物理像素按 DPR 提升清晰度（封顶 DPR_CAP），绘制坐标仍用 CSS 像素。
   const dpr=Math.min(window.devicePixelRatio||1,DPR_CAP);
@@ -135,76 +217,124 @@ function nfNoise(x,z){ return valueNoise(x,z); }
 function nfFbm(x,z){ let a=0.5,s=0; for(let i=0;i<4;i++){s+=a*valueNoise(x,z);x*=2.03;z*=2.03;a*=0.5;} return s; }
 const nfSS=(e0,e1,x)=>{const t=Math.max(0,Math.min(1,(x-e0)/(e1-e0)));return t*t*(3-2*t);};
 function nfLerp(a,b,t){return a+(b-a)*t;}
-// 原作 meadowH：三段正弦缓波（无阶梯），这是花海起伏形态的来源
-function nfMeadowH(x,z){
-  return 1.6*Math.sin(x*0.013+1.3)*Math.cos(z*0.011)
-       + 0.9*Math.sin((x+z)*0.027)
-       + 0.5*Math.sin(x*0.051-z*0.043);
-}
-// 原作海湾：内陆缓坡 → 沙丘 → 沙滩 → 绿松石浅海 → 深海 + 三座沙洲
-const NF_ISLETS=[[-70,-318,27],[32,-352,22],[118,-282,25]];
-function nfShoreZ(x){ return -120+28*Math.sin(x*0.011+0.6)+9*Math.sin(x*0.037+2.0); }
-function nfSeaFloor(s){ return -3*(1-Math.exp(-s/30))-Math.max(0,s-45)*0.085; }
-function nfBayH(x,z){
-  const s=nfShoreZ(x)-z;                                  // >0 在海，<0 内陆
-  const inland=2.4+0.5*nfMeadowH(x,z);
-  const dune=1.25+0.55*Math.sin(x*0.11+0.3)*Math.cos(z*0.09)+0.25*Math.sin(x*0.31+z*0.17);
-  let h=nfLerp(inland,dune,nfSS(-34,-20,s));
-  const b=s<0?-0.11*s:nfSeaFloor(s);
-  h=nfLerp(h,b,nfSS(-16,-8,s));
-  for(const [cx,cz,r] of NF_ISLETS) h=Math.max(h,0.75-1.4*((x-cx)**2+(z-cz)**2)/(r*r));
-  return h;
-}
-function nfVegFlower(x,z){ return 1-nfSS(-30,-21,nfShoreZ(x)-z); }
-// 大陆轮廓：>0 陆地，<0 海洋。保留原点附近为陆地，远处有海。
-function continent(x,z){
-  return fbm(x*0.0032+16.0,z*0.0032-22.0)*1.8-0.72
-       + 0.12*Math.sin(x*0.006+0.5)*Math.cos(z*0.005);
-}
-/* v2.13：terrainColor 每格要取两次 continent（各含 5 层 valueNoise）。
-   网格中心点是有限集合，缓存后相邻帧几乎全命中；上限防增长。 */
-const _contCache=new Map();
-function continentFast(x,z){
-  const k=x+','+z;
-  let v=_contCache.get(k);
-  if(v===undefined){
-    if(_contCache.size>6000)_contCache.clear();
-    v=continent(x,z);_contCache.set(k,v);
+/* v2.24d Catmull-Rom：地形颜色从现在起在格点上采样、格内做 C1 连续重建。
+   线性（双线性）插值在格边只有 C0，斜率会突变 —— 人眼正好对斜率突变敏感，
+   于是 25 单位的格子边界会显成一片片棱线（放大截图里非常明显）。
+   Catmull-Rom 在格边两侧取到同一组控制点，值连续、一阶导也连续，
+   缝隙处的"折线"就消失了，效果接近原作逐像素平滑着色。 */
+/* v2.24d 颜色字符串缓存：地形每帧要生成 2000+ 个 rgb() 字符串，
+   每次 fillStyle 赋值都要重新解析颜色，实测占填充耗时的三成。
+   颜色末尾 1 bit 肉眼无差别，量化后大量相邻面片共用同一个字符串。 */
+const _rgbCache=new Map();
+function nfRGB(r,g,b){
+  const rr=r&~1,gg=g&~1,bb=b&~1;
+  const k=(rr<<16)|(gg<<8)|bb;
+  let s=_rgbCache.get(k);
+  if(s===undefined){
+    if(_rgbCache.size>8192)_rgbCache.clear();
+    s='rgb('+rr+','+gg+','+bb+')';_rgbCache.set(k,s);
   }
-  return v;
+  return s;
 }
-// 高度量级与 v2.3 接近（海面 0，陆地 1~40），但内部改为 Forge 式阶梯。
-function terrainH(x,z){
-  const c=continent(x,z);
-  if(c<0) return -1+c*10;                                  // 深海到浅海
-  if(c<0.035) return 0.8+c*20;                             // 沙滩台地
-  if(c<0.42) return 2+Math.floor(c/0.05)*1.6;              // 草地 8 级
-  if(c<0.60) return 16+Math.floor((c-0.42)/0.045)*2.2;     // 岩石 4 级
-  return 25+Math.floor((c-0.60)/0.08)*2.5;                 // 雪顶 3 级
+/* 4×4 Bayer 有序抖动表（0..1）：用来打散地形面片之间的色阶断层 */
+const NF_BAY=new Float32Array([0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5].map(v=>(v+0.5)/16));
+function nfCR(p0,p1,p2,p3,t){  const t2=t*t,t3=t2*t;
+  return 0.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t2+(-p0+3*p1-3*p2+p3)*t3);
 }
-function isSea(x,z){ return terrainH(x,z)<0; }
-
-/* v2.24 视觉高度 visualH：与 terrainH 同海陆格局、同数值量级（贴地关系不变），
-   但把阶梯 Math.floor 抹成连续，并叠加原作 meadowH 的三段缓波 —— 于是画面上
-   是连绵起伏的花海丘陵，而不是一级一级的台地台阶。碰撞/敌人/技能仍走 terrainH。 */
-const VIS_RELIEF=1.9;                       // 原作缓波起伏幅度（世界单位）
-function visualH(x,z){
-  const c=continent(x,z);
-  let base;
-  if(c<0) base=-1+c*10;
-  else if(c<0.035) base=0.8+c*20;
-  else if(c<0.42) base=2+(c/0.05)*1.6;      // 连续化（原为 floor 阶梯）
-  else if(c<0.60) base=16+((c-0.42)/0.045)*2.2;
-  else base=25+((c-0.60)/0.08)*2.5;
-  // 只在陆地叠加缓波；海面保持平滑（避免海浪台阶）
-  const land=c>=0?1:0;
-  return base+land*nfMeadowH(x,z)*VIS_RELIEF;
+/* ===== v2.26：Dusk Patrol 秋日湖区（移植自 play.gamegems.cloud/g/fd9dd0a7）
+   参考项目的地貌不是"花海 + 直岸海湾"，而是：一条蜿蜒的湖切过山谷，两岸是
+   秋色丘陵，湖里有两座小岛、两个小湖，远处是层叠的蓝紫山脊，黄昏的低日照
+   把所有背光坡染成紫灰。下面这套信号逐条对应参考项目的 world 生成器：
+     nfLakeCenter / nfLakeHalfW  湖心线与半宽（带状湖，不是一条直的岸线）
+     nfWaterD                    到水面的有符号距离（<0 在水里，用于分带着色）
+     nfWorldH                    岸坡抬升 + 三级起伏（近场 -15..15）
+   远山不进高度场：它们由 nfMountainH 烘成全景图，避免与近场网格互相打架。
+*/
+function nfLakeCenter(x){
+  return -148+34*Math.sin(x*0.0092+0.65)+13*Math.sin(x*0.023-1.9)+6*Math.sin(x*0.051+0.4);
 }
+function nfLakeHalfW(x){
+  return 56+22*Math.sin(x*0.0071+2.2)+10*Math.sin(x*0.019+0.4)+5*Math.sin(x*0.043-1.1);
+}
+/* 湖心最近的岸（玩家这一侧）：水面判定/植被门控仍按"岸线距离"来读 */
+function nfShoreZ(x){ return nfLakeCenter(x)+nfLakeHalfW(x); }
+const NF_TARNS=[[-238,-330,46],[330,-206,38]];      // 两个小湖
+const NF_ISLETS=[[76,-138,25],[204,-102,17]];       // 湖中小岛
+function nfWaterD(x,z){
+  let d=Math.abs(z-nfLakeCenter(x))-nfLakeHalfW(x);
+  for(let i=0;i<NF_TARNS.length;i++){
+    const t=NF_TARNS[i], dd=Math.hypot(x-t[0],z-t[1])-t[2];
+    if(dd<d)d=dd;
+  }
+  for(let i=0;i<NF_ISLETS.length;i++){
+    const t=NF_ISLETS[i], dd=t[2]-Math.hypot(x-t[0],z-t[1]);
+    if(dd>d)d=dd;                                   // 岛：取"陆地"那一侧，自然浮出水面
+  }
+  return d;
+}
+/* 湖床与岸坡连续：d=0 处高度为 0，没有台阶式的岸壁 */
+function nfWorldH(x,z,d){
+  if(d===undefined)d=nfWaterD(x,z);   /* v2.34：worldH 已算过 d，这里复用，省一次湖岸距离 */
+  if(d<0){
+    const dep=Math.min(15,0.30*(-d)+0.9)*(0.86+0.28*nfNoise(x*0.02+7,z*0.02-3));
+    return -dep;
+  }
+  const big=nfFbm(x*0.0038+13.1,z*0.0038-7.4);      // 大起伏：丘陵
+  const mid=nfFbm(x*0.0115-4.2,z*0.0115+9.7);       // 中起伏：缓包
+  const rise=1-Math.exp(-d/55);
+  let h=9.5*Math.pow(rise,0.62);
+  h+=(big-0.42)*13*nfSS(4,120,d)+(mid-0.5)*4.5*nfSS(4,60,d);
+  return Math.max(0.02,h);
+}
+/* 林地密度：参考项目里森林是成片的（噪声切块），不是均匀撒点 */
+function forestK(x,z){
+  const n=nfFbm(x*0.0075+31,z*0.0075-17);
+  const patch=nfSS(0.21,0.47,n);
+  /* 林缘再叠一层中频，森林边界才是犬牙交错的，不是一条圆滑的等高线 */
+  const edge=0.62+0.38*nfNoise(x*0.0085-7,z*0.0085+4);
+  return clamp(patch*edge,0,1)*nfSS(0.6,5,nfWaterD(x,z));
+}
+/* ===== v2.34：山势进入可玩地表 =====
+   之前远山是独立高度场，只在 drawMountains() 里画成一层幕布；近景/裙边/碰撞
+   全走 nfWorldH（湖谷丘陵，-17..19），于是无论飞多近，脚下都是平的谷地，
+   主角永远像贴在山脚下。现在把山体抬升并进世界高度：水面保持不变，
+   岸上的地面随山势抬升，玩家、敌人、弹丸、植被全部走同一个函数。
+   山体本身按 84 单位粗网格采样一次（drawMountains 已经在做），
+   这里只做双线性插值，近景每格不必重算 7 座峰 + 三次 fbm。 */
+let MT_SAMPLE=null;
+function nfMountainAt(x,z){
+  const m=MT_SAMPLE;
+  if(!m)return nfMountainField(x,z);
+  const u=(x-m.ox)/m.step,v=(z-m.oz)/m.step;
+  const i=Math.floor(u),j=Math.floor(v);
+  if(i<0||j<0||i>=m.g-1||j>=m.g-1)return nfMountainField(x,z);
+  const fu=u-i,fv=v-j;
+  const h00=m.H[i*m.g+j],h10=m.H[(i+1)*m.g+j];
+  const h01=m.H[i*m.g+j+1],h11=m.H[(i+1)*m.g+j+1];
+  return nfLerp(nfLerp(h00,h10,fu),nfLerp(h01,h11,fu),fv);
+}
+function worldH(x,z,d){
+  if(d===undefined)d=nfWaterD(x,z);
+  const base=nfWorldH(x,z,d);
+  if(base<=NF_WATER_LV)return base;               // 水面/湖床保持原样，山不填湖
+  const land=nfSS(0.4,5,d);                        // 岸边 5 单位内渐入，不起悬崖
+  return base+nfMountainAt(x,z)*land;
+}
+/* 近场可玩地表的统一高度：碰撞、贴地、敌人生成、渲染全部走这一个函数 */
+function terrainH(x,z){ return worldH(x,z); }
+function visualH(x,z){ return worldH(x,z); }
+function isSea(x,z){ return nfWorldH(x,z)<0.05; }
+function groundY(x,z){ return worldH(x,z); }
+/* 植被覆盖度：水面与沙滩为 0，草地上为 1 */
+function nfVegFlower(x,z){ return nfSS(1.5,13,nfWaterD(x,z)); }
 
 /* ---------- 角色素材 ---------- */
 const sprites={};
-const spriteFiles={player:'sword_immortal_cut.png',playerBack:'sword_immortal_back_cut.png',
-                   beast:'beast_cut.png',archer:'dark_cultivator_cut.png',boss:'qilin_boss_cut.png'};
+/* 5 张 1024² 的 PNG 共 9.4MB，手机 4G 上要等十几秒才出图，
+   期间只有几何占位块 —— 这就是"角色图片没了"的主因。
+   已压成 560² WebP，合计 481KB，首屏基本秒开。 */
+const spriteFiles={player:'sword_immortal_cut.webp',playerBack:'sword_immortal_back_cut.webp',
+                   beast:'beast_cut.webp',archer:'dark_cultivator_cut.webp',boss:'qilin_boss_cut.webp'};
 let spritesReady=false;
 function loadSprites(){
   let left=Object.keys(spriteFiles).length;
@@ -230,7 +360,7 @@ const AUTO_MIN_INTERVAL = 0.1;            // 自动释放最小间隔（秒）
 /* v2.14：初始高度 25 丈（Q/E 仍可改设定值）。
    Q/E 改变 targetAlt（持久、松手不回弹）；自动维持 = max(地形,0) + targetAlt，
    遇高山按地形自动升、遇低地自动降。 */
-const DEFAULT_ALT = 25;
+const DEFAULT_ALT = 26;
 const ALT_MIN = 8, ALT_MAX = 120;            // 可设定的离地高度范围
 const ALT_HOLD_K = 5.0;                      // 高度跟随收敛速率
 const ALT_KEY_SPEED = 26;                    // Q/E 改变设定值的速度（丈/秒）
@@ -254,6 +384,8 @@ const VISION_HALF_ANGLE = Math.PI/3;      // 视野半角 ±60° · 练气 1 层
 /* v2.8 等级系统：练气 1→12 层。经验曲线 expToNext(lv)=round(14*lv^1.45+8)，
    击杀妖兽 +20 / 敌修 +24 / Boss +150。每层成长见 levelBonus()。 */
 const LEVEL_MAX = 12;
+/* v2.37：师尊设定的返宗门槛——炼气圆满 + 灵石 10000。 */
+const GOAL_STONES = 10000;
 const EXP_KILL = {beast:20,archer:24,boss:150};
 function expToNext(lv){ return lv>=LEVEL_MAX?Infinity:Math.round(14*Math.pow(lv,1.45)+8); }
 const LV_GROW={hp:14,qi:10,hpRegen:0.45,qiRegen:0.8,vision:7,visionDeg:1,range:2.5};
@@ -286,7 +418,9 @@ const MEADOW_MAT=[[47,122,28],[94,165,44],[127,207,60],    // 0..2 草绿底
                   [240,140,188],[251,208,226],[248,143,184],[253,231,240]]; // 3..6 粉花田
 const MEADOW_HAZE=[242,202,164];        // 暖粉雾（原作 golden fog）
 const FLOWER_COLORS=['#f48fb8','#f7a8c9','#fbcfe1','#ffffff','#ec6fa6','#f9b6d2','#fde7f0'];
-const PETAL_COLORS=FLOWER_COLORS;
+/* v2.26：贴地尾流从"粉色花瓣"改成"被卷起的秋叶" —— 地貌换成秋日湖区后，
+   粉花瓣落在铁锈色坡面上很出戏；色值取自地表的落叶色板。 */
+const PETAL_COLORS=['#b66b43','#c47c46','#c89950','#a65443','#d5bd78','#eaca89'];
 /* v2.7：1 号技能改为金色剑气（与脚下青蓝御剑、火球橙红、冰剑蓝白区分）。
    type:'bolt' 走投射物系统；type:'zone' 走区域持续法术（雷法）。 */
 const SPELLS = {
@@ -329,7 +463,7 @@ function inheritVec(vel,k,cap,out){
 /* v2.23 花瓣尾流：主角贴花海低空飞行时，身后扬起花瓣。
    继承主角速度的一部分（复用 v2.22 的 player.vel），低速不撒、高速更密。
    用累加器限流，避免每帧刷粒子拖垮帧率。 */
-const PETAL_RATE=34;        // 每秒花瓣数（v2.24 加倍，原作 Petalwake 尾流更浓密）
+const PETAL_RATE=58;        // 每秒花瓣数（v2.24c 再加密，贴近原作 Petalwake 的连续拖尾）
 let petalAcc=0;
 function petalWake(dt){
   const v=player.vel||{x:0,y:0,z:0};
@@ -340,17 +474,24 @@ function petalWake(dt){
   if(alt>34){petalAcc=0;return;}                  // 飞太高不扬花
   const lowBoost=clamp(1-(alt-5)/30,0.35,1);       // 越低花瓣越密
   petalAcc+=PETAL_RATE*lowBoost*clamp(speed/36,0,1.6)*dt;
-  let n=Math.min(4,Math.floor(petalAcc));          // 单帧上限，防卡顿
+  let n=Math.min(6,Math.floor(petalAcc));          // 单帧上限，防卡顿
   petalAcc-=n;
+  const dx=player.dir?player.dir.x:0, dz=player.dir?player.dir.z:-1;
   while(n-->0){
-    const a=Math.random()*Math.PI*2;
+    /* v2.24c：花瓣从身后 2~11 单位的花丛表面被卷起，而不是从主角身上冒出来；
+       继承 24% 主角速度后逐渐被风托散，形成连续的后拖尾。 */
+    const back=2+Math.random()*9, side=(Math.random()-0.5)*8;
+    const px=player.pos.x-dx*back-dz*side;
+    const pz=player.pos.z-dz*back+dx*side;
+    if(nfVegFlower(px,pz)<0.2)continue;            // 海面/沙滩不扬花
+    const py=Math.min(player.pos.y-1,visualH(px,pz)+1.2)+Math.random()*2;
     const col=PETAL_COLORS[Math.floor(Math.random()*PETAL_COLORS.length)];
     pushParticle({kind:'petal',
-      p:{x:player.pos.x+Math.cos(a)*2,y:player.pos.y-Math.random()*3,z:player.pos.z+Math.sin(a)*2},
-      v:{x:-v.x*0.18+(Math.random()-0.5)*7,y:1.5+Math.random()*4+Math.max(0,v.y)*0.1,
-         z:-v.z*0.18+(Math.random()-0.5)*7},
-      life:1.0+Math.random()*0.9,max:1.9,color:col,size:2.4+Math.random()*2.2,
-      grav:1.2,drag:1.1,rot:Math.random()*6.28,vr:(Math.random()-0.5)*7});
+      p:{x:px,y:py,z:pz},
+      v:{x:v.x*0.24+(Math.random()-0.5)*11,y:2.2+Math.random()*5.5+Math.max(0,v.y)*0.16,
+         z:v.z*0.24+(Math.random()-0.5)*11},
+      life:1.5+Math.random()*1.1,max:2.6,color:col,size:3.2+Math.random()*2.4,
+      grav:0.9,drag:0.85,rot:Math.random()*6.28,vr:(Math.random()-0.5)*10});
   }
 }
 const ENEMY_SPELL_ORDER=['sword','fire','ice'];         // 敌人只配 1/2/3 号技能（v2.2 设定）
@@ -364,7 +505,7 @@ const I18N={
   zh:{
     title:'乱星海 · 练气期试炼', hp:'气血', qi:'灵力',
     realmFull:'练气 12 层 · 圆满', realm:'练气 {0} 层 · 经验 {1}/{2}',
-    kills:'击杀 {0}   得分 {1}', altitude:'高度 {0} 米（设定 {1}）',
+    kills:'击杀 {0}   灵石 {1}', altitude:'高度 {0} 米（设定 {1}）',
     groundSea:'海洋（无妖兽，灵力快充）', groundLand:'陆地', viewAngle:'视角', inCloud:'穿云中',
     hpRegen:'气血回复中 +{0}/秒', hpRegenFull:'气血已满（回复速率 +{0}/秒）',
     autoOn:'自动攻击 开 (F)', autoOff:'自动攻击 关 (F)', visionOn:'视野 显示 (V)', visionOff:'视野 隐藏 (V)',
@@ -382,7 +523,7 @@ const I18N={
     introRoll:'J 剑舞·万象翻滚（无敌规避 + 剑气横扫，20 灵力 / 0.5 秒冷却，可连段）',
     introSea:'飞越海面可避开妖兽并快速回复灵力；击杀 5 个后神兽麒麟现身',
     introStart:'点击开始', dead:'道消', deadRestart:'按 R 或点击 重来',
-    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · L 排行榜 · R 重来',
+    tip:'W 前进 · S 后撤 · A/D 转向 · Q/E 降升 · 1 飞剑术 / 2 火球 / 3 冰剑术 / 4 雷法 · F 自动攻击 · V 视野 · Z/X/C 视角 · 空格 俯冲 · J 剑舞翻滚 · L 排行榜 · G 坊市 · T 返宗门 · R 重来',
     rollReady:'剑舞翻滚 就绪 (J) · 耗 {0} 灵力', rollCd:'剑舞翻滚 CD {0}s', rollName:'剑舞·万象',
     rollNoQi:'灵力不足（需 {0}）', rollCombo:'连段 {0}',
     unknownFoe:'不明敌人', killedBy:'被 {0} 的「{1}」击败',
@@ -392,25 +533,43 @@ const I18N={
     deadBy:'{0}', deadViewReplay:'按空格 重看击杀回放',
     loading:'山海素材载入中…',
     /* v2.17：排行榜 */
-    lbTitle:'练气期大能榜', lbOpen:'排行榜 (L)', lbClose:'关闭排行榜 (L)',
+    lbTitle:'青云宗炼气榜', lbOpen:'排行榜 (L)', lbClose:'关闭排行榜 (L)',
     lbHint:'按 L 随时查看排行榜',
-    lbColRank:'名次', lbColName:'道号', lbColScore:'积分', lbColKills:'击杀',
+    lbColRank:'名次', lbColName:'道号', lbColScore:'灵石', lbColKills:'击杀',
     lbColDealt:'造成伤害', lbColTaken:'受到伤害', lbColBoss:'斩 BOSS', lbColTime:'存活',
     lbEmpty:'尚无记录 —— 战死即可上榜',
     lbYourRank:'本局名次：第 {0} 名',
     lbDeathStats:'本局战绩',
-    lbStatScore:'积分', lbStatKills:'击杀', lbStatDealt:'造成伤害',
+    lbStatScore:'灵石', lbStatKills:'击杀', lbStatDealt:'造成伤害',
     lbStatTaken:'受到伤害', lbStatBoss:'击杀 BOSS', lbStatTime:'存活', lbStatRealm:'境界',
     lbNewRecord:'★ 新纪录',
     lbSec:'秒', lbLv:'练气 {0} 层',
     lbNotRanked:'本局未进前 {0} 名（战绩已记录）',
     /* v2.20 分页 */
-    lbPage:'第 {0}/{1} 页', lbPageTip:'↑↓ 翻页'
+    lbPage:'第 {0}/{1} 页', lbPageTip:'↑↓ 翻页',
+    /* v2.37 青云宗试炼剧情 / 通关 */
+    storySect:'青云宗 · 乱星海秘境试炼',
+    storyIntro1:'你是青云宗炼气期弟子，今日被师尊一袖子丢进了试炼秘境。',
+    storyIntro2a:'师尊传音：「炼至炼气圆满，聚灵石一万，',
+    storyIntro2b:'便可归来晋升筑基。去吧！」',
+    goalTitle:'试炼目标',
+    goalProgress:'练气 {0}/12 · 灵石 {1}/10000',
+    goalReady:'目标达成 · 可返宗门',
+    goalStory:'师尊传音：「圆满已至，灵石满万。归山门，受筑基之道。」',
+    goalReturn:'返回宗门 · 结算榜单 (T)', goalContinue:'继续历练', goalBadge:'★ 返宗 · 看榜单',
+    goalLocked:'需炼气圆满且灵石 ≥ 10000',
+    goalContinueTip:'师尊摇摇头：「时机未到，继续历练。」',
+    returnTitle:'返宗门 · 筑基可期',
+    returnClear:'试炼通关',
+    returnStory1:'山门云雾散开，师尊负手而立，目光落在你鼓胀的储物袋上。',
+    returnStory2:'「炼气圆满，灵石过万。不错，从今日起，你便是我青云宗的筑基弟子。」',
+    returnRestart:'再来一局 (R)',
+    lbLegendClear:'★ = 返宗通关'
   },
   en:{
     title:'Chaos Sea · Lianqi Trial', hp:'HP', qi:'Qi',
     realmFull:'Lianqi XII · Perfect', realm:'Lianqi {0} · EXP {1}/{2}',
-    kills:'Kills {0}   Score {1}', altitude:'Altitude {0} m (set {1})',
+    kills:'Kills {0}   Stones {1}', altitude:'Altitude {0} m (set {1})',
     groundSea:'Ocean (no beasts, fast Qi recovery)', groundLand:'Land', viewAngle:'View', inCloud:'In cloud',
     hpRegen:'HP recovering +{0}/s', hpRegenFull:'HP full (regen rate +{0}/s)',
     autoOn:'Auto-cast ON (F)', autoOff:'Auto-cast OFF (F)', visionOn:'Vision ON (V)', visionOff:'Vision OFF (V)',
@@ -428,7 +587,7 @@ const I18N={
     introRoll:'J Sword Dance roll (invulnerable dodge + sword-energy sweep, 20 Qi / 0.5s CD, chainable)',
     introSea:'Fly over the ocean to dodge beasts and recover Qi fast; kill 5 to summon the Qilin',
     introStart:'Click to start', dead:'Fallen', deadRestart:'Press R or click to restart',
-    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · L Leaderboard · R Restart',
+    tip:'W Fly · S Back · A/D Turn · Q/E Ascend/Descend · 1 Sword / 2 Fireball / 3 Ice Sword / 4 Thunder · F Auto · V Vision · Z/X/C Camera · Space Dive · J Sword Dance · L Leaderboard · G Market · T Return · R Restart',
     rollReady:'Sword Dance READY (J) · {0} Qi', rollCd:'Sword Dance CD {0}s', rollName:'Sword Dance',
     rollNoQi:'Not enough Qi (need {0})', rollCombo:'Combo {0}',
     unknownFoe:'Unknown foe', killedBy:'Slain by {0}\'s {1}',
@@ -438,20 +597,38 @@ const I18N={
     deadBy:'{0}', deadViewReplay:'Press Space to replay the kill',
     loading:'Loading mountain & sea assets…',
     /* v2.17：排行榜 */
-    lbTitle:'Lianqi Masters', lbOpen:'Leaderboard (L)', lbClose:'Close leaderboard (L)',
+    lbTitle:'Qingyun Sect · Lianqi Board', lbOpen:'Leaderboard (L)', lbClose:'Close leaderboard (L)',
     lbHint:'Press L anytime for the leaderboard',
-    lbColRank:'#', lbColName:'Name', lbColScore:'Score', lbColKills:'Kills',
+    lbColRank:'#', lbColName:'Name', lbColScore:'Stones', lbColKills:'Kills',
     lbColDealt:'Dealt', lbColTaken:'Taken', lbColBoss:'Boss', lbColTime:'Alive',
     lbEmpty:'No records yet — die to get on the board',
     lbYourRank:'Your rank: #{0}',
     lbDeathStats:'This Run',
-    lbStatScore:'Score', lbStatKills:'Kills', lbStatDealt:'Dealt',
+    lbStatScore:'Stones', lbStatKills:'Kills', lbStatDealt:'Dealt',
     lbStatTaken:'Taken', lbStatBoss:'Bosses', lbStatTime:'Alive', lbStatRealm:'Realm',
     lbNewRecord:'★ NEW RECORD',
     lbSec:'s', lbLv:'Lianqi {0}',
     lbNotRanked:'Not in top {0} this run (score recorded)',
     /* v2.20 paging */
-    lbPage:'Page {0}/{1}', lbPageTip:'↑↓ to page'
+    lbPage:'Page {0}/{1}', lbPageTip:'↑↓ to page',
+    /* v2.37 Qingyun Sect trial / clear */
+    storySect:'Qingyun Sect · Chaos Sea Trial',
+    storyIntro1:'You are a Lianqi disciple of Qingyun Sect, tossed into the trial realm by your master.',
+    storyIntro2a:'"Reach Lianqi perfection and gather 10,000 spirit stones,',
+    storyIntro2b:'then return to ascend to Foundation Establishment. Go."',
+    goalTitle:'Trial Goal',
+    goalProgress:'Lianqi {0}/12 · Stones {1}/10000',
+    goalReady:'Goal complete · return to sect',
+    goalStory:'Master whispers: "Perfection reached, stones gathered. Return and receive the Foundation Dao."',
+    goalReturn:'Return & settle rank (T)', goalContinue:'Keep Training', goalBadge:'★ Return · Rank',
+    goalLocked:'Requires Lianqi perfection and 10000+ stones',
+    goalContinueTip:'Master shakes his head: "Not yet. Keep training."',
+    returnTitle:'Return to Sect · Foundation Awaits',
+    returnClear:'TRIAL CLEAR',
+    returnStory1:'The mountain gate opens. Your master stands with hands behind his back, eyeing your full storage pouch.',
+    returnStory2:'"Lianqi perfected, ten thousand stones. Good. From today, you are a Foundation disciple of Qingyun Sect."',
+    returnRestart:'Play Again (R)',
+    lbLegendClear:'★ = trial clear'
   }
 };
 function camModeName(){ return UI_LANG==='en'?
@@ -479,28 +656,112 @@ let game={started:false,over:false,score:0,kills:0,time:0,flash:0,
           // v2.17：战斗统计（排行榜维度）。dmgDealt=造成伤害，dmgTaken=受到伤害，bossKills=击杀 Boss 数
           dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null,
           // v2.18：麒麟重生分段计数。bossWave=已刷出过的麒麟数，killsAtBoss=刷出当前这只时的击杀快照
-          bossWave:0,killsAtBoss:0};
+          bossWave:0,killsAtBoss:0,
+          // v2.37：返宗试炼状态。ending='death'|'return'；goalReady/goalPrompt 控制师尊传音面板
+          ending:null,goalReady:false,goalPrompt:false,clearTime:0};
 let player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
             heading:0,trail:[],dir:{x:0,y:0,z:-1},vel:{x:0,y:0,z:0},inv:0,dive:null,roll:null,lastHit:0,inCloud:false,cloudVapourDue:0,
             cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
+            /* v2.34：四个技能默认都参与自动攻击，用户可逐个关掉 */
+            autoSpells:{sword:true,fire:true,ice:true,lightning:true},
             autoChoice:'—',lastCast:'—'};
-let cam={yaw:0,yawRate:0,pitchIdx:1,dist:44,pitches:[25,45,70],mode:'soft',bank:0,
+let cam={yaw:0,yawRate:0,pitchIdx:0,dist:38,pitches:[25,45,70],mode:'soft',bank:0,
          pos:{x:0,y:0,z:0},target:{x:0,y:0,z:0},
          f:{x:0,y:0,z:-1},r:{x:1,y:0,z:0},u:{x:0,y:1,z:0}};
 let enemies=[],bolts=[],beams=[],lightningZones=[],particles=[],dmgNums=[],clouds=[];
 
+/* ===== v2.39 宗门坊市：灵石货币 + 本局成长 =====
+   灵石替代原来的"得分"显示，击杀照旧产出（数值不变）；
+   灵石余额与已购功法均为「本局状态」，重开 / 刷新即归零，不跨局保留。 */
+const SHOP_KEY='lxh_lianqi_shop_v1', SHOP_MAX_LV=6;
+const SHOP_ITEMS=[
+  {id:'sword', name:'八荒剑',   cat:'神兵', desc:'飞剑射程+12 · 威力+6', base:80},
+  {id:'robe',  name:'太乙道袍', cat:'护甲', desc:'所受伤害 -6%',         base:90},
+  {id:'body',  name:'锻体诀',   cat:'功法', desc:'气血上限+30 · 回复+1.5',base:70},
+  {id:'spirit',name:'炼神诀',   cat:'功法', desc:'全技能射程 +5',        base:85},
+  {id:'breath',name:'炼气诀',   cat:'功法', desc:'灵力上限+25 · 回复+2', base:75},
+  {id:'fruit', name:'朱果',     cat:'丹药', desc:'气血/灵力上限各+15',   base:60}
+];
+let shopSave={stones:0,up:{}};
+let shopBonusCache=null;
+function loadShop(){
+  /* v2.39：坊市改为纯局内状态，灵石与功法每局归零；顺手清掉旧版跨局存档 */
+  shopSave={stones:0,up:{}};
+  for(const it of SHOP_ITEMS)shopSave.up[it.id]=0;
+  shopBonusCache=null;
+  try{localStorage.removeItem(SHOP_KEY);}catch(e){}
+}
+function persistShop(){ /* v2.39：局内状态，不落盘；保留调用点以便统一开关 */ }
+function shopLv(id){ return shopSave.up[id]||0; }
+function shopPrice(it){ const lv=shopLv(it.id); return Math.round(it.base*(1+lv*0.8)*(1+lv*0.25)); }
+function calcShopBonus(){
+  return {
+    hp:shopLv('body')*30+shopLv('fruit')*15,
+    qi:shopLv('breath')*25+shopLv('fruit')*15,
+    hpRegen:shopLv('body')*1.5,
+    qiRegen:shopLv('breath')*2,
+    armor:Math.min(0.6,shopLv('robe')*0.06),
+    allRange:shopLv('spirit')*5,
+    swordRange:shopLv('sword')*12,
+    swordDmg:shopLv('sword')*6
+  };
+}
+function shopBonus(){ return shopBonusCache||(shopBonusCache=calcShopBonus()); }
+function earnStones(n){ shopSave.stones+=n; persistShop(); syncShopBtn(); checkGoal(); }
+function buyShopItem(id){
+  const it=SHOP_ITEMS.find(x=>x.id===id);
+  if(!it||shopLv(id)>=SHOP_MAX_LV)return false;
+  const price=shopPrice(it);
+  if(shopSave.stones<price)return false;
+  shopSave.stones-=price; shopSave.up[id]++; shopBonusCache=null;
+  /* 上限类加成立即生效，并给当前血/蓝补上同样的增量 */
+  const hpAdd=id==='body'?30:(id==='fruit'?15:0);
+  const qiAdd=id==='breath'?25:(id==='fruit'?15:0);
+  if(hpAdd){player.maxHp+=hpAdd;player.hp=Math.min(player.maxHp,player.hp+hpAdd);}
+  if(qiAdd){player.maxQi+=qiAdd;player.qi=Math.min(player.maxQi,player.qi+qiAdd);}
+  persistShop(); syncShopBtn();
+  return true;
+}
+loadShop();
+/* v2.39：坊市为局内成长，开局无加成，player 保持基础属性 */
+
 /* v2.8 等级派生属性：只作用于主角，敌人始终用 1 层基准值。 */
 function pLevel(){ return player.level||1; }
+/* ===== v2.37 青云宗试炼目标 =====
+   师尊原话：炼气圆满 + 灵石一万，方可返宗晋升筑基。
+   条件每帧检测；达成时只播一次传音，玩家可选「继续历练」，之后随时按 T 或点徽标返宗。 */
+function isGoalReady(){ return pLevel()>=LEVEL_MAX && shopSave.stones>=GOAL_STONES; }
+function checkGoal(){
+  if(game.goalReady||game.over||!isGoalReady())return false;
+  game.goalReady=true; game.goalPrompt=true;
+  player.lastCast=L('goalReady');
+  fxRing(player.pos,'#ffd45e',1.5,9,0.7,5);
+  burst({x:player.pos.x,y:player.pos.y+3,z:player.pos.z},30,'#ffe9a8',3.6);
+  syncGoalPanel();
+  return true;
+}
+function returnToSect(){
+  if(game.over||!isGoalReady())return false;
+  game.ending='return'; game.clearTime=game.time; game.over=true; game.replay=null;
+  game.goalPrompt=false;
+  try{ game.rankEntry=submitToBoard({cleared:true}); }catch(e){ game.rankEntry=null; }
+  syncGoalPanel();
+  return true;
+}
 function pBonus(){ return pLevel()-1; }                       // 1 层=0，12 层=11
 function pVisionRange(){ return VISION_RANGE+LV_GROW.vision*pBonus(); }
 function pVisionHalf(){ return VISION_HALF_ANGLE+LV_GROW.visionDeg*pBonus()*Math.PI/180; }
 function spellRange(key,ownerKey){
   const S=SPELLS[key]; if(!S)return 0;
-  return ownerKey==='player'?S.range+LV_GROW.range*pBonus():S.range;
+  if(ownerKey!=='player')return S.range;
+  const b=shopBonus();
+  return S.range+LV_GROW.range*pBonus()+b.allRange+(key==='sword'?b.swordRange:0);
 }
 function powerRange(key,ownerKey){
   const S=SPELLS[key]; if(!S)return 0;
-  return ownerKey==='player'?S.powerRange+LV_GROW.range*pBonus():S.powerRange;
+  if(ownerKey!=='player')return S.powerRange;
+  const b=shopBonus();
+  return S.powerRange+LV_GROW.range*pBonus()+b.allRange+(key==='sword'?b.swordRange:0);
 }
 /* v2.17 气血恢复：完全无条件持续回复。
    v2.16 还有「受击后 0.6 秒停顿」，用户明确要求「不管是否被攻击命中都一直回复」，
@@ -508,8 +769,8 @@ function powerRange(key,ownerKey){
    平衡性由「基础速率 5.0/秒」保证 —— 敌人一次近战 10~18 伤害，
    而回复速率 5.0/秒，连续被打仍然会掉血致死，只是不再有「被打断回复」的雪上加霜。
    HUD 显示的数值与实际 dt*rate 严格一致（逐帧实测校验）。 */
-function pRegenHp(){ return 5.0+LV_GROW.hpRegen*pBonus(); }
-function pRegenQi(isSea){ return (isSea?11:7)+LV_GROW.qiRegen*pBonus(); }
+function pRegenHp(){ return 5.0+LV_GROW.hpRegen*pBonus()+shopBonus().hpRegen; }
+function pRegenQi(isSea){ return (isSea?11:7)+LV_GROW.qiRegen*pBonus()+shopBonus().qiRegen; }
 /* v2.17：不再判断受击时间，只看是否已满血。 */
 function hpRegenActive(){ return player.hp<player.maxHp; }
 /* 击杀获得经验；可连升多级，升级补满当期新增的 hp/qi 并触发金光特效。 */
@@ -527,6 +788,7 @@ function addExp(amount){
     ups++;
   }
   if(pLevel()>=LEVEL_MAX){player.exp=0;}
+  checkGoal();
   return ups;
 }
 
@@ -539,17 +801,21 @@ function initClouds(){
     const ca=Math.random()*Math.PI*2,cr=120+Math.random()*320;
     const cx=Math.cos(ca)*cr;
     const cz=Math.sin(ca)*cr;
-    const sc=0.7+Math.random()*Math.random()*1.4;
+    const sc=0.55+Math.random()*Math.random()*1.0;
     const ang=Math.random()*Math.PI*2;
     const len=(10+Math.random()*24)*sc;
     const puffs=[];
-    const count=4+((Math.random()*7)|0);
+    /* v2.26：云从"一串圆片"改成"一坨圆盘堆"。参考项目的积云是一团团的，
+       原来沿一条直线摆 puff，远看就是一根白色香肠。 */
+    const count=8+((Math.random()*8)|0);
     for(let q=0;q<count;q++){
-      const t=(q/(count-1))*2-1;
+      const t=q/(count-1);
+      const rr=Math.sqrt(t)*(len*0.9);
+      const aa=Math.random()*Math.PI*2;
       puffs.push({
-        dx:Math.cos(ang)*t*len+(Math.random()-0.5)*8*sc,
-        dz:Math.sin(ang)*t*len+(Math.random()-0.5)*8*sc,
-        r:(5+Math.random()*8)*sc*(1-0.4*Math.abs(t)),
+        dx:Math.cos(aa)*rr+(Math.random()-0.5)*6*sc,
+        dz:Math.sin(aa)*rr*0.85+(Math.random()-0.5)*6*sc,
+        r:(4.5+Math.random()*6.5)*sc*(1-0.45*t),
         tk:2+((Math.random()*(FORGE_CK-1))|0)
       });
     }
@@ -562,6 +828,21 @@ function initClouds(){
 const keys={}, mouse={x:W/2,y:H/2};
 window.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase(); keys[k]=true;
+  /* v2.36：坊市打开时只接受关闭键，其余一律拦截（含技能与移动） */
+  if(shopOpen){
+    if((k==='b'||k==='g'||k==='escape'||k==='s')&&!e.repeat)shopOpen=false;
+    e.preventDefault(); return;
+  }
+  if(k==='g'&&!e.repeat){toggleShop();e.preventDefault();return;}
+  /* v2.37：T = 返宗门。只有在炼气圆满且灵石 ≥10000 时才结算通关；
+     未达成时给一句师尊提示，不打断战斗。 */
+  if(k==='t'&&!e.repeat){
+    if(!game.over){
+      if(isGoalReady()){ if(returnToSect()){ boardOpen=true; boardPage=0; } }
+      else player.lastCast=L('goalLocked');
+    }
+    e.preventDefault(); return;
+  }
   // v2.17：L = 排行榜（随时可看，不必等死）。原先 L 是雷法别名，现改派给排行榜；雷法仍是 4 键。
   if(k==='l'&&!e.repeat){ toggleBoard(); e.preventDefault(); return; }
   /* v2.20：榜单打开时，↑↓ / PageUp / PageDown 翻页。
@@ -605,6 +886,8 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 window.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;});
 window.addEventListener('mousedown',e=>{
+  /* v2.36：商店面板优先拦截点击，否则点"购买"会同时放一道飞剑 */
+  if(shopOpen){shopClick(e.clientX,e.clientY);return;}
   if(!game.started){game.started=true;return;}
   if(game.replay){game.replay=null;return;}              // v2.15：跳过回放
   if(game.over){reset();return;}
@@ -665,6 +948,7 @@ if(IS_TOUCH){
   }
   // 点画布开始 / 重来（桌面走 mousedown，手机走这里）
   canvas.addEventListener('touchstart',e=>{
+    if(shopOpen){const t=e.changedTouches[0];shopClick(t.clientX,t.clientY);e.preventDefault();return;}
     if(!game.started){game.started=true;e.preventDefault();}
     else if(game.replay){game.replay=null;e.preventDefault();}   // v2.15：跳过回放
     else if(game.over){reset();e.preventDefault();}
@@ -782,6 +1066,9 @@ function evaluateAutoSpell(actorKey,casterPos,facing,targets,qi,cds){
   const vHalf=actorKey==='player'?pVisionHalf():VISION_HALF_ANGLE;
   let best=null;
   for(const key of order){
+    /* v2.34：用户可以在技能条上单独关掉某个技能的自动使用。
+       只作用于玩家的自动决策，手动 1/2/3/4 与敌人 AI 都不受影响。 */
+    if(actorKey==='player'&&player.autoSpells&&player.autoSpells[key]===false)continue;
     const S=SPELLS[key];
     const range=spellRange(key,actorKey);
     if(cds[key]>0||qi<S.cost)continue;
@@ -870,7 +1157,9 @@ function launchSpell(ownerKey,from,target,key,caster){
              born:game.time},
       path:[{...from}],
       target:S.homing?target:null,
-      dmg:S.dmg,radius:S.radius,color:S.color,
+      /* v2.36 八荒剑：只强化玩家飞剑的威力，敌人不受影响 */
+      dmg:S.dmg+((ownerKey==='player'&&key==='sword')?shopBonus().swordDmg:0),
+      radius:S.radius,color:S.color,
       homing:S.homing,guided:S.homing,powered:true,
       powerRange:powerRange(key,ownerKey),traveled:0,life:4.0,
       trail:[],phase:Math.random()*6.28,
@@ -1363,7 +1652,7 @@ function spawnEnemy(boss,opts={}){
   }
   const maxQi=boss?120:60;
   enemies.push({
-    x,z,y:terrainH(x,z),
+    x,z,y:groundY(x,z),
     hp:boss?360:64,maxHp:boss?360:64,r:boss?9:5,
     type:boss?'boss':(Math.random()<0.28?'archer':'beast'),
     wander:Math.random()*6.28,hitCd:0,hurt:0,
@@ -1382,7 +1671,7 @@ function recycleStragglers(){
     const a=player.heading+(Math.random()*2-1)*FRONT_ARC*0.8;
     const spot=landSpotNear(a,ENEMY_SPAWN_MIN+Math.random()*50);
     const nx=spot.x, nz=spot.z;
-    e.x=nx; e.z=nz; e.y=terrainH(nx,nz);
+    e.x=nx; e.z=nz; e.y=groundY(nx,nz);
     e.hp=e.maxHp; e.qi=e.maxQi;
     for(const k in e.cds)e.cds[k]=0;
     fxRing({x:e.x,y:e.y+4,z:e.z},'#9ad6ff',0.6,4.5,0.3,2);
@@ -1399,7 +1688,9 @@ function hurtEnemy(e,dmg){
   dmgNums.push({p:{x:e.x,y:e.y+11,z:e.z},txt:Math.round(dmg),life:0.9,color:'#ffe08a'});
   burst({x:e.x,y:e.y+4,z:e.z},6,'#c8503c',1.3);
   if(e.hp<=0){
-    game.score+=e.type==='boss'?100:10; game.kills++;
+    /* v2.36：得分改称灵石，击杀照旧产出并立即入账、存档 */
+    const stones=e.type==='boss'?100:10;
+    game.score+=stones; earnStones(stones); game.kills++;
     /* v2.17：统计 Boss 击杀数（排行榜维度之一） */
     if(e.type==='boss')game.bossKills++;
     // v2.8：击杀经验；可能触发连升，升级特效在 addExp 内产生。
@@ -1553,6 +1844,9 @@ function sanitizeBoardRow(x){
     if(typeof v!=='number'||!Number.isFinite(v))return null;
     row[k]=v;
   }
+  /* v2.37：老存档没有 cleared/clearTime，按「未通关」兼容读入。 */
+  row.cleared=!!x.cleared;
+  row.clearTime=(typeof x.clearTime==='number'&&Number.isFinite(x.clearTime))?x.clearTime:0;
   return row;
 }
 function loadBoard(){
@@ -1573,10 +1867,12 @@ function saveBoard(list){
    同时加 ts 兜底比较，让排序在完全同分时仍有确定顺序（避免引擎排序不稳定）。 */
 function boardSort(list){
   return list.slice().sort((a,b)=>
+    ((b.cleared?1:0)-(a.cleared?1:0))||   /* v2.37：返宗通关者永远排在试炼中记录之前 */
     (b.score-a.score)||(b.kills-a.kills)||(b.time-a.time)||(b.ts-a.ts));
 }
-/* 战死入榜：返回 {entry, rank, list, isNewRecord} */
-function submitToBoard(){
+/* 战死 / 返宗入榜：返回 {entry, rank, list, isNewRecord} */
+function submitToBoard(opts={}){
+  const cleared=!!opts.cleared;
   const entry={
     name:daoName(),
     score:game.score, kills:game.kills,
@@ -1584,6 +1880,8 @@ function submitToBoard(){
     bossKills:game.bossKills,
     time:Math.round(game.time*10)/10,
     realm:pLevel(),
+    cleared,
+    clearTime:cleared?Math.round(game.time*10)/10:0,
     ts:Date.now()
   };
   const prev=loadBoard();
@@ -1642,14 +1940,27 @@ function reset(){
   game={started:true,over:false,score:0,kills:0,time:0,flash:0,
         killer:null,replay:null,lastReplay:null,
         dmgDealt:0,dmgTaken:0,bossKills:0,rankEntry:null,
-        bossWave:0,killsAtBoss:0};
+        bossWave:0,killsAtBoss:0,
+        ending:null,goalReady:false,goalPrompt:false,clearTime:0};
   player={pos:{x:0,y:DEFAULT_ALT+2,z:0},hp:100,maxHp:100,qi:100,maxQi:100,level:1,exp:0,targetAlt:DEFAULT_ALT,
           heading:0,trail:[],dir:{x:0,y:0,z:-1},vel:{x:0,y:0,z:0},inv:0,dive:null,roll:null,rollDir:1,lastHit:0,inCloud:false,cloudVapourDue:0,
           cds:{sword:0,fire:0,ice:0,lightning:0,roll:0},autoLast:0,auto:true,showVision:false,
+            /* v2.34：四个技能默认都参与自动攻击，用户可逐个关掉 */
+            autoSpells:{sword:true,fire:true,ice:true,lightning:true},
           autoChoice:'—',lastCast:'—'};
+  /* v2.39：坊市是局内成长，重开时灵石与已购功法一起归零 */
+  loadShop();
   enemies=[];bolts=[];beams=[];lightningZones=[];particles=[];dmgNums=[];
   for(let i=0;i<10;i++)spawnEnemy(false,{forward:false});
-  initClouds(); cam.yaw=player.heading; cam.yawRate=0; cam.pitchIdx=1;
+  /* v2.31 默认用 25° 低视角：45° 时地平线跑到屏幕外，远山只剩顶边一条灰边，
+     用户直接反馈「没有山峦」。低视角下主峰、垭口、山脊都进画面。 */
+  /* v2.38：本局界面状态必须随重开归零，否则会残留「继续历练」的返宗徽标 /
+     坊市覆盖层。v2.39：shopSave 也在本函数内归零，灵石/功法都不跨局。 */
+  shopOpen=false; boardOpen=false; boardPage=0; shopRects.length=0;
+  const gp=document.getElementById('goalPanel');
+  if(gp)gp.className='';
+  if(typeof syncGoalPanel==='function')syncGoalPanel();
+  initClouds(); cam.yaw=player.heading; cam.yawRate=0; cam.pitchIdx=0;
   snapCamera();
 }
 
@@ -1921,8 +2232,9 @@ function drawKillCamOverlay(){
 function update(dt){
   if(!game.started||game.over)return;
   /* v2.17：排行榜打开时暂停推进，让玩家安心看榜（死亡界面不受影响） */
-  if(boardOpen)return;
+  if(boardOpen||shopOpen)return;
   game.time+=dt; game.flash=Math.max(0,game.flash-dt*2.5);
+  checkGoal();   /* v2.37：炼气圆满 + 灵石过万时弹出师尊传音 */
   player.inv=Math.max(0,player.inv-dt);
   tickCds(player.cds,dt);
   const onSea=isSea(player.pos.x,player.pos.z);
@@ -1963,6 +2275,12 @@ function update(dt){
   let mf=-touch.axisY;                // v2.13：摇杆纵轴（上推前进）
   if(keys['w']||keys['arrowup'])mf+=1;
   if(keys['s']||keys['arrowdown'])mf-=1;
+  /* v2.29 手机端「W 常开」：触屏只有一根拇指，按着前进就没法转向，
+     所以前进默认锁在 1.0 —— 出生即在飞，摇杆只管左右转向。
+     摇杆纵向改作调节：上推微加速（最多 1.30 倍），下拉刹车（-1 → 速度 0，
+     等于原地悬停）。桌面端不受影响，仍是 W/S 按下/松开。 */
+  if(IS_TOUCH)mf=touchThrottle(mf);
+  else mf=clamp(mf,-1,1.30);
   const spd=mf<0?36*REVERSE_SCALE:36;
   /* v2.22：速度起点 pvx/pvz/pvy 已在 updateRoll 之前记录（见上，块外），
      这里直接用真实位移推进，末尾统一算 vel。 */
@@ -2001,7 +2319,9 @@ function update(dt){
     player.pos.y=lerp(player.pos.y,altY,1-Math.exp(-ALT_HOLD_K*dt));
   }
   } // end if(!rolling)
-  player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,150);
+  /* v2.34：山体进高度场后地面可到 200+，绝对上限 150 会把玩家压进山体内部。
+     改成相对地面的上限，仍保留 300 的兜底（旧世界最高约 150）。 */
+  player.pos.y=clamp(player.pos.y,Math.max(groundP,0)+5,Math.max(300,groundP+player.targetAlt+40));
   /* v2.22：完成全部位移后算速度。x/z 用本帧起止位移，y 用高度变化；
      dt 钳在小范围，避免首帧/切后台的巨大间隔污染速度。 */
   if(dt>1e-5){
@@ -2058,7 +2378,7 @@ function update(dt){
       e.x=oldX; e.z=oldZ;
       e.wander+=Math.PI;
     }
-    e.y=terrainH(e.x,e.z);
+    e.y=groundY(e.x,e.z);
   }
 
   updateBolts(dt);
@@ -2110,19 +2430,21 @@ function boltSource(b){
 }
 function hurtPlayer(d,opts={}){
   if(!opts.ignoreInv&&player.inv>0)return;
-  player.hp-=d;
-  /* v2.17：战斗统计埋点 —— 受到伤害累计 */
-  game.dmgTaken+=d;
+  /* v2.36 太乙道袍：唯一减伤入口，所有来源（弹丸/光柱/近战）统一生效 */
+  const real=Math.max(0,d*(1-shopBonus().armor));
+  player.hp-=real;
+  /* v2.17：战斗统计埋点 —— 受到伤害累计（按实际扣除计） */
+  game.dmgTaken+=real;
   // v2.11：主角受伤飘红色掉血字（复用 dmgNums 世界坐标飘字系统）
   dmgNums.push({p:{x:player.pos.x,y:player.pos.y+6,z:player.pos.z},
-                txt:'-'+Math.round(d),life:0.9,color:'#ff5a4a'});
+                txt:'-'+Math.round(real),life:0.9,color:'#ff5a4a'});
   if(!opts.noInv)player.inv=0.6;
   if(!opts.noFlash)game.flash=1;
   player.lastHit=game.time;
   /* v2.15：记录致命一击来源。opts.from 为 {ident,path,casterPos}（弹丸）或
      {ident:{skill,caster}}（光柱/近战）。有完整 path 的才播放 kill cam。 */
   if(player.hp<=0){
-    player.hp=0; game.over=true;
+    player.hp=0; game.over=true; game.ending='death';
     const src=opts.from||{ident:{skill:'unknown',caster:'enemy'}};
     game.killer=src.ident;
     /* v2.17：战死即入榜（无门槛），记录本局全部战绩维度。 */
@@ -2155,257 +2477,1128 @@ function killerLabel(ident){
 /* ============================================================
  * 渲染
  * ============================================================ */
-function drawSky(){
-  /* v2.24：忠实 News Flight golden 天色——天顶深蓝 #30589a、中层灰紫
-     #9c9fc0、地平线暖橘 #f7c597。更多分段做平滑过渡，避免色带。 */
-  const stops=[[48,88,154],[92,110,160],[156,159,192],[214,174,168],[247,197,151]];
-  const N=16;
-  for(let i=0;i<N;i++){
-    const t=1-i/(N-1);                       // i=0 是画面顶部
-    const seg=Math.min(stops.length-2,Math.floor(t*(stops.length-1)));
-    const a=stops[seg], b=stops[seg+1];
-    const f=t*(stops.length-1)-seg;
-    const col=[0,1,2].map(k=>Math.round(a[k]+(b[k]-a[k])*f));
-    ctx.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;
-    ctx.fillRect(0,i*H/N,W,H/N+1);
+/* ===== v2.26 黄昏天空：移植参考项目 Dusk Patrol 的 skyAt =====
+   参考项目的天色不是一张竖直渐变，而是按仰角三段插值 + 按方位向太阳偏暖：
+     地平线 hor = mix(紫灰, 奶油橙, sunward^4)
+     中层   rose = mix(灰紫, 粉橙, sunward)
+     天顶   zen  = mix(深靛, 灰紫, sunward)
+   再叠一个巨大的太阳光晕。这里把整套 skyAt 烘成一张等距柱状全景（每帧零开销），
+   运行时按相机朝向取窗口 —— 于是左右两侧的冷暖分布是真的，不是贴上去的滤镜。 */
+const SKY_PW=768,SKY_PH=192;
+const SKY_TOP=34*Math.PI/180,SKY_BOT=-3*Math.PI/180;
+let SKY_PANO=null;
+const NF_LIGHT=V.norm({x:0.50,y:0.14,z:-0.86});   // 低日照：仰角 8°，偏前右
+const NF_SUN_AZ=Math.atan2(NF_LIGHT.x,NF_LIGHT.z); // 太阳方位角（用于云层留出开口）
+function skyAt(dx,dy,dz){
+  const l=Math.hypot(dx,dz)||1;
+  const su=clamp((dx*NF_LIGHT.x+dz*NF_LIGHT.z)/l*0.5+0.5,0,1);
+  const y=Math.max(0,dy);
+  const h4=su*su*su*su;
+  const hor=[nfLerp(194,255,h4),nfLerp(159,207,h4),nfLerp(187,159,h4)];
+  const ros=[nfLerp(161,232,su),nfLerp(128,161,su),nfLerp(168,157,su)];
+  const zen=[nfLerp(87,126,su),nfLerp(91,119,su),nfLerp(138,157,su)];
+  const t1=nfSS(-0.004,0.135,y),t2=nfSS(0.05,0.42,y);
+  const out=[0,0,0];
+  for(let k=0;k<3;k++){const c=nfLerp(hor[k],ros[k],t1);out[k]=nfLerp(c,zen[k],t2);}
+  /* 太阳：一级大光晕把整片天染暖，二级近核更亮 */
+  const ang=Math.hypot(dx-NF_LIGHT.x,dy-NF_LIGHT.y,dz-NF_LIGHT.z);
+  const aur=1-nfSS(0.05,0.26,ang);
+  for(let k=0;k<3;k++)out[k]=nfLerp(out[k],[255,200,140][k],aur*0.62);
+  if(ang<0.075){
+    const w=1-nfSS(0.012,0.075,ang);
+    for(let k=0;k<3;k++)out[k]=nfLerp(out[k],[255,226,170][k],w*0.85);
   }
-  // 暖粉雾带：近地平线一段柔和的 golden haze
-  ctx.fillStyle='rgba(242,202,164,0.26)';
-  ctx.fillRect(0,H*0.58,W,H*0.20);
-  drawSun();
+  return out;
 }
-/* v2.10：太阳固定在世界天球的一个方向（不再是屏幕贴片）。
-   用「相机位置 + 固定方向 × 极远距离」投影：玩家平移时屏幕位置几乎不变，
-   相机转向时随天球自然移动，背对太阳时 project 返回 null 而消失。
-   圆盘像素半径固定，符合天体的无限远视觉。 */
-/* 位于地平线上方、偏世界前方（-z）偏右（+x）的固定方位。
-   仰角刻意压低（≈0）：俯视相机 FOV 62°、俯角约 22°，视野上半边界接近水平，
-   仰角过高的太阳会被投到屏幕上方之外而不可见。 */
-const SUN_DIR=V.norm({x:0.43,y:0.02,z:-0.90});
-function drawSun(){
-  const far={x:cam.pos.x+SUN_DIR.x*1200,y:cam.pos.y+SUN_DIR.y*1200,z:cam.pos.z+SUN_DIR.z*1200};
-  const p=project(far);
-  if(!p)return;                                  // 背对太阳：不可见
-  const r=Math.max(20,Math.min(W,H)*0.036);
-  const g=ctx.createRadialGradient(p.x,p.y,r*0.2,p.x,p.y,r*3.2);
-  g.addColorStop(0,'rgba(255,239,200,0.95)');       // 原作 sun #ffcf8a 暖橘
-  g.addColorStop(0.34,'rgba(255,207,138,0.55)');
-  g.addColorStop(1,'rgba(255,207,138,0)');
-  ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,r*3.2,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='rgba(255,246,220,0.95)';ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();
-}
-/* v2.24：花海连续色场。原作用「噪声 mask 连续混合草绿/粉花」，而不是离散色块。
-   - 海面只保留 deep<-4 的深水，且改成原作 golden 的青绿浅滩/深海蓝；
-     浅海(-4..0)与沙滩(0..1.6)也铺上花，消除原来占半屏的纯蓝海。
-   - 草地用 valueNoise 连续插值草绿↔粉，保留阶梯明暗，彻底去掉棋盘格。 */
-function flowerMix(x,z){
-  // 原作 makeFlowers 的 mask：smoothstep(0.26,0.42, fbm(W*0.035))
-  return nfSS(0.26,0.42,nfFbm(x*0.035,z*0.035));
-}
-/* v2.24 原作地表着色一比一移植（world.js makeGround 片元着色器）：
-   patchN=fbm(W*.035) 决定粉斑；近处 speck 点状撒粉、远处 farPink 连续混合；
-   green=mix(G1,G2,fbm(W*.18))；pink=mix(P1,P2,noise(W*.6+3)*.7+speck*.3)；
-   最后乘 lit=0.72+0.38*dot(N,sun)。这里逐条复刻，色值用原作 golden 调色板。 */
-const NF_G1=[47,122,28],NF_G2=[94,165,44];       // groundGreen / groundGreen2
-const NF_P1=[240,140,188],NF_P2=[251,208,226];    // pink / pink2
-const NF_SAND=[236,220,180],NF_SANDWET=[194,167,124],NF_SEABED=[217,199,156];
-const NF_SUN=V.norm({x:-0.3,y:0.13,z:-0.95});     // 原作 golden sunDir
-const NF_CAMX=()=>cam.pos.x,NF_CAMZ=()=>cam.pos.z;
-function terrainColor(x,z,h,dist,sea){
-  const patchN=nfFbm(x*0.035,z*0.035);
-  const patchK=nfSS(0.34,0.62,patchN);
-  const far=nfSS(26,90,dist);
-  /* v2.24 性能关键：单格平涂若用原作高频噪声（green fbm*.18 / pink noise*.6），
-     相邻格中心采样差异极大 → 大块棋盘。这里把着色噪声降到低频（周期 > 格宽），
-     让相邻格颜色连续过渡；细密的花朵质感交给 drawCellFlowers 的花瓣实例。 */
-  const gn=nfFbm(x*0.030+5,z*0.030-7);
-  const pn=nfNoise(x*0.055+3,z*0.055+3);
-  const nearPink=0.05+0.55*patchK;                  // 近处：patchK 花斑决定粉晕
-  const farPink=0.72+0.26*patchK;                   // 远处：连续粉花海
-  const pinkAmt=nfLerp(nearPink,farPink,far);
-  const green=[0,1,2].map(k=>nfLerp(NF_G1[k],NF_G2[k],gn));
-  const pink =[0,1,2].map(k=>nfLerp(NF_P1[k],NF_P2[k],pn));
-  let base=[0,1,2].map(k=>nfLerp(green[k],pink[k],Math.max(0,Math.min(1,pinkAmt))));
-  // 海湾：沙丘 / 湿沙 / 海床（原作 NF_BAY 分支）
-  const c=continentFast(x,z);
-  if(c<0 || (c>=0&&c<0.035)){
-    const grain=nfNoise(x*3.1,z*3.1)*0.5+nfNoise(x*0.45,z*0.45)*0.5;
-    const wet=1-nfSS(0.05,0.45,h);
-    if(c<0){
-      // 海床：按深度从湿沙过渡到 seabed，浅水更亮
-      const dep=Math.max(0,-h);
-      base=[0,1,2].map(k=>nfLerp(NF_SANDWET[k],NF_SEABED[k]*0.9,nfSS(0,5,dep))*(0.92+0.12*grain));
-    }else{
-      // 沙滩：湿沙→干沙，掺少量草
-      base=[0,1,2].map(k=>nfLerp(NF_SANDWET[k],NF_SAND[k],0.25*grain));
-      base=[0,1,2].map(k=>nfLerp(base[k],green[k]*1.15,wet*0.5));
+function buildSkyPano(){
+  const cv=document.createElement('canvas');cv.width=SKY_PW;cv.height=SKY_PH;
+  const g=cv.getContext('2d');
+  const img=g.createImageData(SKY_PW,SKY_PH),D=img.data;
+  for(let py=0;py<SKY_PH;py++){
+    const e=SKY_TOP+(SKY_BOT-SKY_TOP)*((py+0.5)/SKY_PH);
+    const ce=Math.cos(e),se=Math.sin(e);
+    for(let px=0;px<SKY_PW;px++){
+      const a=((px+0.5)/SKY_PW)*Math.PI*2;
+      const col=skyAt(Math.sin(a)*ce,se,Math.cos(a)*ce);
+      const o=(py*SKY_PW+px)*4;
+      D[o]=col[0];D[o+1]=col[1];D[o+2]=col[2];D[o+3]=255;
     }
   }
-  // 法线光照 lit：用 meadowH 的解析梯度（正弦直接求导，零噪声采样，比原作数值梯度更快）
-  const ghx=1.6*0.013*Math.cos(x*0.013+1.3)*Math.cos(z*0.011)
-          +0.9*0.027*Math.cos((x+z)*0.027)+0.5*0.051*Math.cos(x*0.051-z*0.043);
-  const ghz=-1.6*0.011*Math.sin(x*0.013+1.3)*Math.sin(z*0.011)
-          +0.9*0.027*Math.cos((x+z)*0.027)-0.5*0.043*Math.cos(x*0.051-z*0.043);
-  const nx=-ghx*VIS_RELIEF,ny=1,nz=-ghz*VIS_RELIEF;
-  const nl=Math.hypot(nx,ny,nz)||1;
-  const lit=0.72+0.38*Math.max(0,(nx*NF_SUN.x+ny*NF_SUN.y+nz*NF_SUN.z)/nl);
-  base=[0,1,2].map(k=>Math.round(clamp(base[k]*lit,0,255)));
-  // 远距雾混入暖粉 haze（原作 golden fog #f2caa4）
-  const fog=clamp((dist-180)/420,0,0.82);
-  return [0,1,2].map(k=>Math.round(base[k]*(1-fog)+MEADOW_HAZE[k]*fog));
+  g.putImageData(img,0,0);
+  SKY_PANO=cv;
 }
-/* v2.23：原 Forge 松林改为花簇标记 —— 花海里稀疏立起的花枝，
-   只在草地高度段生成，密度略高于原树林以读出「花田」感。 */
-function forgeTree(x,z,h){ return h>=2&&h<10&&hash2((x|0)+401,(z|0)-197)>0.74; }
-/* v2.24 密集花海：忠实复刻原作 News Flight 的 makeFlowers 思路——
-   每格按确定性 hash 撒多朵花，双线性插值贴地，随风摆动（gust + 正弦），
-   被 riding 尾流压弯；近处画五瓣+花心，远处退化为单色点做 LOD。
-   只在此前已生成的地形格内绘制，沿用 depth 排序保证前后遮挡正确。 */
-function drawCellFlowers(c){
-  if(c.sea && c.h<-4) return;            // 深水不撒花
-  if(c.h>=10.5) return;                  // 雪顶不放花
-  const step=QUALITY.step, t=game.time;
-  let n=c.depth<70?12:(c.depth<140?8:(c.depth<260?5:3));
+/* ===== v2.26 手绘高层云全景（移植参考项目的 highBank）=====
+   参考项目的云不是"一团团椭圆"，而是先摆一串大小不一的团块，逐列求上下边界，
+   再把列内像素按高度分成 6 条色带 —— 于是云有平底、有亮顶、有层次。
+   这里逐字照搬，烘成一张 1024×220 的圆柱全景，运行时按方位取样。 */
+const CL_PW=1024,CL_PH=220,CL_TOP=40*Math.PI/180;
+let CLOUD_PANO=null;
+const CL_TONES=[[159,119,141],[187,137,149],[218,159,157],[241,183,158],[255,211,172],[255,226,184]];
+function buildCloudPano(){
+  const cv=document.createElement('canvas');cv.width=CL_PW;cv.height=CL_PH;
+  const g=cv.getContext('2d');
+  const img=g.createImageData(CL_PW,CL_PH),D=img.data;
+  let seed=90210;
+  const rand=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+  function px(x,y,c){
+    if(y<0||y>=CL_PH)return;
+    const i=((((x%CL_PW)+CL_PW)%CL_PW)+y*CL_PW)*4;
+    D[i]=c[0];D[i+1]=c[1];D[i+2]=c[2];D[i+3]=255;
+  }
+  function bank(cx,cy,r,h){
+    const parts=[];
+    for(let k=0;k<14;k++){
+      const u=(k+rand()*0.6)/14,along=u*2-1;
+      const env=0.15+0.85*Math.pow(Math.sin(u*Math.PI),0.8);
+      const mass=0.57+0.43*Math.sin(2.7+u*7.2);
+      const rx=r*(0.11+0.19*rand())*(0.48+0.57*env);
+      const ry=h*env*(0.52+0.52*rand())*(0.66+0.5*mass);
+      parts.push([cx+along*r,cy+ry*0.14+env*h*(0.12+0.3*mass)+rand()*h*0.09,rx,ry]);
+    }
+    for(let ix=-Math.ceil(r*1.3);ix<=Math.ceil(r*1.3);ix++){
+      const x=cx+ix;let top=-1e3,bot=1e3;
+      for(let q=0;q<parts.length;q++){
+        const pp=parts[q],d=(x-pp[0])/pp[2];
+        if(Math.abs(d)>=1)continue;
+        const root=Math.sqrt(1-d*d);
+        if(pp[1]+root*pp[3]>top)top=pp[1]+root*pp[3];
+        if(pp[1]-root*pp[3]*0.64<bot)bot=pp[1]-root*pp[3]*0.64;
+      }
+      if(top<bot)continue;
+      for(let y=Math.ceil(bot);y<=top;y++){
+        const v=(y-bot)/Math.max(1,top-bot);
+        const w=Math.sin(x*0.053+y*0.27)*0.06+Math.sin(x*0.12-y*0.3)*0.042;
+        const band=v+w>0.89?5:v+w>0.7?4:v+w>0.51?3:v+w>0.28?2:v+w>0.16?1:0;
+        px(Math.floor(x),y,CL_TONES[band]);
+      }
+    }
+  }
+  /* 太阳方位留出开口：正对太阳的那 40° 只放薄云，光才透得下来 */
+  const sunU=((NF_SUN_AZ/(Math.PI*2))%1+1)%1;
+  const nearSun=(u)=>{let d=Math.abs(u-sunU);if(d>0.5)d=1-d;return d<0.075;};
+  const banks=[[0.12,0.86,120],[0.30,0.78,86],[0.52,0.82,140],[0.66,0.70,92],[0.84,0.90,150],
+               [0.02,0.62,78],[0.42,0.58,110],[0.75,0.60,96]];
+  for(const [u,v,r] of banks){
+    if(nearSun(u))continue;
+    bank(u*CL_PW,CL_PH*(1-v),r,r*0.20);
+  }
+  for(let i=0;i<26;i++){
+    const u=rand();
+    if(nearSun(u))continue;
+    bank(u*CL_PW,CL_PH*(0.10+rand()*0.72),18+rand()*70,3+rand()*16);
+  }
+  /* 细碎的卷云丝：横向拉长的短线 */
+  for(let i=0;i<130;i++){
+    const x=Math.floor(rand()*CL_PW),y=Math.floor(CL_PH*(0.06+rand()*0.72));
+    const len=8+Math.floor(rand()*54);
+    for(let j=0;j<len;j++){
+      const yy=y+Math.floor(j*0.05);
+      if(Math.sin((j/len)*Math.PI)>0.18)px(x+j,yy,CL_TONES[2]);
+    }
+  }
+  g.putImageData(img,0,0);
+  CLOUD_PANO=cv;
+}
+/* 等距柱状全景 → 屏幕：按列切片绘制（每片再按 tan 校正横向位置），
+   避免整幅 drawImage 在广角下的拉伸。eTop/eBot 是这张图覆盖的仰角范围。 */
+function drawCylPano(pano,eTop,eBot,alpha){
+  if(!pano)return;
+  const hz=camHorizonY();
+  if(hz===null)return;
+  const yTop=hz-focal*Math.tan(eTop),yBot=hz-focal*Math.tan(eBot);
+  if(yBot<=yTop)return;
+  const PW=pano.width,N=20;
+  ctx.globalAlpha=alpha==null?1:alpha;
+  for(let i=0;i<N;i++){
+    const sx0=i*W/N,sx1=(i+1)*W/N;
+    const a0=screenAzimuth(sx0),a1=screenAzimuth(sx1);
+    if(a0===null||a1===null)continue;
+    let u0=((a0/(Math.PI*2))%1+1)%1;
+    let du=(a1-a0)/(Math.PI*2);
+    let sx=u0*PW,sw=du*PW;
+    if(sw<0){sx+=sw;sw=-sw;}                        // 反向（相机朝 +z 时）
+    if(sw<=0.05)continue;
+    const dx=sx1-sx0;
+    if(sx+sw<=PW){
+      ctx.drawImage(pano,sx,0,sw,pano.height,sx0,yTop,dx,yBot-yTop);
+    }else{
+      /* 跨过全景接缝：左右两段分别取图 */
+      const cut=PW-sx;
+      if(cut>0.05){
+        ctx.drawImage(pano,sx,0,cut,pano.height,sx0,yTop,dx*(cut/sw),yBot-yTop);
+        ctx.drawImage(pano,0,0,sw-cut,pano.height,sx0+dx*(cut/sw),yTop,dx*(1-cut/sw),yBot-yTop);
+      }else{
+        ctx.drawImage(pano,0,0,sw,pano.height,sx0,yTop,dx,yBot-yTop);
+      }
+    }
+  }
+  ctx.globalAlpha=1;
+}
+/* 屏幕 x → 该列的水平方位角（只用相机水平朝向 + 横向基向量） */
+function screenAzimuth(sx){
+  const ndc=(sx-W/2)/focal;
+  let dx=cam.f.x+cam.r.x*ndc,dz=cam.f.z+cam.r.z*ndc;
+  const l=Math.hypot(dx,dz);
+  if(l<1e-6)return null;
+  return Math.atan2(dx/l,dz/l);
+}
+/* 地平线在屏幕上的 y：投影一条与相机等高的极远点（与偏航无关） */
+function camHorizonY(){
+  const dx=cam.f.x,dz=cam.f.z,l=Math.hypot(dx,dz)||1;
+  const p=project({x:cam.pos.x+dx/l*4000,y:cam.pos.y,z:cam.pos.z+dz/l*4000});
+  return p?p.y:null;
+}
+function drawSky(){
+  /* 相机总是俯视，天空实际只露出地平线上方 8~10°，所以不必贴一张全景 ——
+     一条竖直渐变（按当前方位的 skyAt 采样）+ 太阳方向的横向暖色就够了。
+     之前用柱状全景按列切片，20 条切片各自缩放，接缝在渐变色上就是一道道竖纹。 */
+  const az=Math.atan2(cam.f.x,cam.f.z);
+  const N=6,stops=[];
+  for(let i=0;i<N;i++){
+    const e=SKY_TOP+(SKY_BOT-SKY_TOP)*(i/(N-1));
+    const ce=Math.cos(e),se=Math.sin(e);
+    stops.push({e:0,t:i/(N-1),c:skyAt(Math.sin(az)*ce,se,Math.cos(az)*ce)});
+  }
+  const hz=camHorizonY();
+  const yHor=(hz===null?H*0.22:hz);
+  const yTop=yHor-focal*Math.tan(SKY_TOP);
+  const g=ctx.createLinearGradient(0,yTop,0,yHor-focal*Math.tan(SKY_BOT));
+  for(const s2 of stops)g.addColorStop(s2.t,`rgb(${s2.c.map(v=>Math.round(v)).join(',')})`);
+  ctx.fillStyle=g;
+  ctx.fillRect(0,yTop-2,W,Math.max(2,(yHor-focal*Math.tan(SKY_BOT))-yTop+3));
+  /* v2.31 地平线以下铺的是「远景地面」，不是天空。
+     原来这一层是暖粉 rgb(228,192,180)（天空色）—— 近景网格只到 ±350 单位，
+     再远的地方地形一格都没有，那层暖粉就原样露出来：画面上就是一条横贯的
+     粉白空白带，把近景和远山隔开，读起来像"地图开了个洞"。
+     现在铺雾化的地表渐变（贴近地平线偏紫灰、往下转橄榄土色），远山和近景
+     地形都画在它上面，空地看起来是"很远的地面"，而不是漏了底。 */
+  const gy0=yHor-1, gy1=H+2;
+  const g2=ctx.createLinearGradient(0,gy0,0,gy0+Math.max(260,(H-gy0)*0.85));
+  g2.addColorStop(0.00,'rgb(205,186,188)');
+  g2.addColorStop(0.28,'rgb(184,168,166)');
+  g2.addColorStop(0.62,'rgb(158,148,134)');
+  g2.addColorStop(1.00,'rgb(134,128,112)');
+  ctx.fillStyle=g2;
+  ctx.fillRect(0,gy0,W,gy1-gy0);
+  drawSun();
+}
+/* 太阳：参考项目的太阳没有硬边，是一团"过曝"的光，越靠核越白 */
+function drawSun(){
+  const far={x:cam.pos.x+SUN_DIR.x*1600,y:cam.pos.y+SUN_DIR.y*1600,z:cam.pos.z+SUN_DIR.z*1600};
+  const p=project(far);
+  if(!p)return;
+  const r=Math.max(26,Math.min(W,H)*0.075);
+  const g=ctx.createRadialGradient(p.x,p.y,r*0.10,p.x,p.y,r);
+  g.addColorStop(0,'rgba(255,246,214,0.95)');
+  g.addColorStop(0.18,'rgba(255,231,178,0.72)');
+  g.addColorStop(0.42,'rgba(255,203,140,0.34)');
+  g.addColorStop(1,'rgba(255,190,130,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(255,250,232,0.75)';
+  ctx.beginPath();ctx.arc(p.x,p.y,r*0.15,0,Math.PI*2);ctx.fill();
+}
+const SUN_DIR=NF_LIGHT;
+/* ===== v2.26 地表配色：参考项目 Dusk Patrol 的 18 色秋日色板 =====
+   参考项目把地形烘成一张"手绘"贴图：先按高度/坡度/林地选一个色调，
+   再叠低日照光、云影、等高线阶地，最后压成有限色。
+   这套色板的特征是全都被黄昏染过：草是橄榄与金黄、树是铁锈与琥珀、
+   背光坡一律偏紫灰 —— 不是"绿草地+蓝海"的正午配色。色值原样照抄。 */
+const NF_TONES=[
+  [234,202,137],[192,180,119],[168,161,97],[213,189,120],[183,152,89],[168,122,78],
+  [182,107,67],[196,124,70],[166,84,67],[152,80,69],[200,153,80],
+  [121,116,73],[83,96,78],[106,101,95],[130,123,125],[156,146,144],
+  [214,199,188],[239,222,196]
+];
+const NF_SHADOW=[76,62,86];                    // 背光坡的紫灰（原作 shadow 常量）
+const NF_SUN=NF_LIGHT;                          // 地形光照与天空共用同一个太阳
+/* 大气透视色：背光侧偏紫，朝阳侧偏暖奶油（原作 airColor） */
+function nfAirColor(dx,dz){
+  const l=Math.hypot(dx,dz)||1;
+  const s=Math.pow(Math.max(0,(dx*NF_SUN.x+dz*NF_SUN.z)/l),3);
+  return [nfLerp(170,255,s),nfLerp(152,203,s),nfLerp(185,157,s)];
+}
+/* 云影：参考项目把高云的投影烘进地表贴图（地面上一块块缓慢移动的暗斑）。
+   这里用低频噪声近似，随游戏时间缓慢漂移。 */
+function nfCloudShade(x,z,t){
+  const n=nfFbm(x*0.0034+t*0.0022,z*0.0034-t*0.0015);
+  return nfSS(0.47,0.63,n)*0.52;
+}
+/* v2.26：花海换成"灌木/落叶层"的密度信号，尾流与植被门控仍在用这个函数名。 */
+function flowerMix(x,z){ return nfSS(0.28,0.56,nfFbm(x*0.035,z*0.035)); }
+/* 地形着色。dhx/dhz 是从高度网格差分出来的坡度（不再额外采样噪声）。
+   v2.26 关键改动：色相不再"按阈值挑一个色调" —— 那样相邻格一换色就是一整块
+   方形色斑，25 单位的格子在地面上看得清清楚楚。现在每种地貌给一条连续色带，
+   按噪声占比在色带里插值，再用 smoothstep 权重把"草 / 林 / 岩 / 沙"叠起来，
+   颜色于是变成位置的连续函数，格边只剩极缓的渐变。 */
+const NF_GRASS_RAMP=[11,2,11,12,2,1,11];
+const NF_GROVE_RAMP=[11,12,8,6,7,10,8];
+function nfRamp(ramp,t){
+  const xx=clamp(t,0,0.9999)*(ramp.length-1);
+  const i=xx|0,f=xx-i;
+  const A=NF_TONES[ramp[i]],B=NF_TONES[ramp[i+1]];
+  return [nfLerp(A[0],B[0],f),nfLerp(A[1],B[1],f),nfLerp(A[2],B[2],f)];
+}
+function terrainColor(x,z,h,dhx,dhz,dist){
+  const steep=Math.hypot(dhx,dhz);
+  /* 噪声频率必须低于格点采样率：25 单位的网格去采 0.045（周期 22 单位）的噪声，
+     相邻格点取到的是完全无关的两个值 —— 画面上就是一块块随机色斑。
+     这里所有着色噪声的周期都 ≥ 60 单位，细颗粒交给子面片的 grain。 */
+  const a=nfNoise(x*0.011+1.7,z*0.011-3.1);
+  const b=nfNoise(x*0.016-2.2,z*0.016+5.5);
+  const gn=nfNoise(x*0.0068+5,z*0.0068-7)*0.6+nfNoise(x*0.0125-2,z*0.0125+3)*0.4;
+  const f=forestK(x,z);
+  let col=nfRamp(NF_GRASS_RAMP,gn*0.8+a*0.2);
+  const forestW=nfSS(0.30,0.62,f)*nfSS(2.2,5.5,h);
+  if(forestW>0.002){
+    const grove=nfNoise(x*0.013+9,z*0.013)*0.7+nfNoise(x*0.021,z*0.021)*0.3;
+    const g=nfRamp(NF_GROVE_RAMP,grove);
+    for(let k=0;k<3;k++)col[k]=nfLerp(col[k],g[k],forestW);
+  }
+  const rockW=clamp(nfSS(10.5,14.4,h)*0.9+nfSS(0.9,1.6,steep)*0.45,0,0.92);
+  if(rockW>0.002){
+    const r=NF_TONES[steep>1.15?14:13];
+    for(let k=0;k<3;k++)col[k]=nfLerp(col[k],r[k],rockW);
+  }
+  const sandW=1-nfSS(0.12,0.62,h);
+  if(sandW>0.002){
+    const wet=1-nfSS(0.02,0.30,h);
+    const sandC=[nfLerp(NF_TONES[0][0],150,wet*0.75),
+                 nfLerp(NF_TONES[0][1],128,wet*0.75),
+                 nfLerp(NF_TONES[0][2],104,wet*0.75)];
+    for(let k=0;k<3;k++)col[k]=nfLerp(col[k],sandC[k],sandW*0.94);
+  }
+  /* 低日照：太阳只比地平线高 8°，背光坡几乎全压暗 —— 这就是参考项目
+     "整片山都是紫灰"的来源。法线用解析坡度，零噪声采样。 */
+  const nl=(-dhx*NF_SUN.x+NF_SUN.y-dhz*NF_SUN.z)/Math.sqrt(1+steep*steep);
+  const light=clamp(nl*0.40,-0.22,0.20)+(b-0.5)*0.07+(a-0.5)*0.035;
+  const self=clamp(-(dhx*NF_SUN.x+dhz*NF_SUN.z)*1.15,0,0.38);
+  const sh=clamp(self+nfCloudShade(x,z,game.time),0,0.70);
+  const dx=x-cam.pos.x,dz=z-cam.pos.z,dl=Math.hypot(dx,dz)||1;
+  const air=nfAirColor(dx/dl,dz/dl);
+  const fog=clamp(1-Math.exp(-Math.max(0,dist-55)*0.0048),0,0.94);
+  const out=[0,0,0];
+  for(let k=0;k<3;k++){
+    const c=nfLerp(col[k]*(0.88+light),NF_SHADOW[k],sh);
+    out[k]=Math.round(nfLerp(c,air[k],fog));
+  }
+  return out;
+}
+/* ===== v2.26 湖面：参考项目 lake() 的 Canvas2D 版 =====
+   六个深度分带（3/10/23/47/81 单位）：浅滩淡青 → 中水青绿 → 深水靛蓝；
+   掠射角处混入天空色，于是湖面远端泛白、近岸发绿，水天之间是一层暖雾而不是硬边。
+   分带做成屏幕纵向渐变（不是逐格跳色），相邻格共用一个渐变，绝不会有格子感。 */
+const NF_WATER_STOPS=[
+  [0.00,[118,124,138]],   // 地平线：深水混天空，掠射角反射最强
+  [0.10,[58,100,120]],
+  [0.34,[64,120,136]],
+  [0.62,[92,152,156]],
+  [0.84,[126,180,172]],
+  [1.00,[164,200,188]]    // 近岸浅滩
+];
+/* 深度分带（参考项目 lake() 的 3/10/23/47/81）：浅滩淡青 → 湖心靛蓝。
+   带边做 35% 的平滑过渡，避免 25 单位的格子上出现一圈硬色环。 */
+/* v2.30 统一水线。地形着水色（子片填色）与水面多边形裁剪必须共用这一条，
+   否则两套边界各走各的，岸边就会漏出地形色。水线抬到 +0.45 而不是 0：
+   岸滩起伏噪声波长 20 单位、幅度 ±0.25，按 0 裁会在浅滩留下格子状沙包。
+   SOFT 是水陆过渡带宽度（世界单位），让水边是渐变而不是一刀切。 */
+const NF_WATER_LV=0.45, NF_WATER_SOFT=1.6;
+/* 地形混水色的权重：低于水线 → 1（整片水色），高出水线 SOFT 以外 → 0，
+   中间 smoothstep 过渡。地形着色和水面多边形共用同一条水线，岸边才不会
+   出现"两套边界互相错开"的缝。 */
+function nfWaterMix(h){ return 1-nfSS(NF_WATER_LV-NF_WATER_SOFT,NF_WATER_LV+NF_WATER_SOFT,h); }
+const NF_WATER_BANDS=[[176,202,190],[144,186,176],[112,164,160],[78,133,142],[62,109,126],[48,86,108]];
+const NF_WATER_DEPTH=[0,3,10,23,47,81];
+function nfDepthColor(dep){
+  /* 参考项目用 6 条硬分带，但那是逐像素着色；本作是 25 单位的格子，
+     硬分带在格子上就是一格一格的色块。这里改成按深度连续插值：
+     色相还是那 6 个，只是过渡是平滑的。 */
+  const B=NF_WATER_BANDS,D=NF_WATER_DEPTH;
+  const t=Math.pow(clamp(dep/120,0,1),0.42)*(D.length-1);
+  const i=Math.min(D.length-2,t|0),f=t-i;
+  return [nfLerp(B[i][0],B[i+1][0],f),nfLerp(B[i][1],B[i+1][1],f),nfLerp(B[i][2],B[i+1][2],f)];
+}
+let NF_WATER_GRAD=null,NF_WATER_HZ=0;
+/* 每格的水色 = 屏幕纵向渐变（远近）× 深度分带（深浅）。两个都是位置的连续函数，
+   相邻格差得很小，所以不会有格子感。 */
+function nfWaterColor(y,dep){
+  const hz=NF_WATER_HZ;
+  const t=clamp((y-hz)/Math.max(1,H-hz),0,1);
+  const S=NF_WATER_STOPS;
+  let i=0;while(i<S.length-2&&t>S[i+1][0])i++;
+  const f=clamp((t-S[i][0])/Math.max(1e-4,S[i+1][0]-S[i][0]),0,1);
+  const g0=S[i][1],g1=S[i+1][1],d=nfDepthColor(dep);
+  const m=0.58;
+  return [Math.round(nfLerp(nfLerp(g0[0],g1[0],f),d[0],m)),
+          Math.round(nfLerp(nfLerp(g0[1],g1[1],f),d[1],m)),
+          Math.round(nfLerp(nfLerp(g0[2],g1[2],f),d[2],m))];
+}
+function buildWaterGrad(){
+  const hz=camHorizonY();
+  NF_WATER_HZ=(hz===null?H*0.30:hz);
+}
+/* 湖面微波：四组不同方向、不同速度的涌浪（参考项目的 rip 只做两层，这里给足层次） */
+function bayWaveY(x,z,t){
+  return 0.26*Math.sin(0.15*x+0.30*z-1.20*t)
+       + 0.15*Math.sin(-0.42*x+z-0.55*t)
+       + 0.08*Math.sin(0.55*x+z-0.42*t)
+       + 0.03*Math.sin(-0.12*x+z-0.30*t);
+}
+function drawBayWater(c){
+  const cy=c.cy;
+  /* 水线取 +0.45 而不是严格 0：岸滩的起伏噪声波长只有 20 单位、幅度 ±0.25，
+     按 0 裁会在浅滩上留下一个个"刚冒出水面"的格子状沙包。抬高水线把它们淹掉，
+     视觉上等于一条连续的水边线。 */
+  const LV=NF_WATER_LV;
+  /* 全在岸上就不画（用最低角判定，与地形混水色同一条线） */
+  if(c.minH>=LV)return false;
+  const step=QUALITY.step,t=game.time;
+  const x0=c.x0,z0=c.z0;
+  /* 水面是 y≈0 的一张平面，边界来自地面 vh=LV 的等值线，按子片裁剪。 */
+  const edge=Math.hypot(c.pr[1].x-c.pr[0].x,c.pr[1].y-c.pr[0].y);
+  /* v2.30：细分上限 2 → 6、步长 46 → 28。原来近处一个大格子只有 2×2 片，
+     等值线被折线近似得厉害，相机一动这条折线就换形状（岸线像在呼吸），
+     而且每片是平涂色，近处 100px 一片 → 水面上一块块斜条。 */
+  const SUB=clamp(Math.round(edge/28),1,6);
+  const N=SUB+1;
+  /* 节点：世界位置、水面投影点、地面高度 */
+  const SX=new Array(N*N),SY=new Array(N*N),GH=new Array(N*N);
+  for(let j=0;j<N;j++){
+    const v=j/SUB;
+    for(let i=0;i<N;i++){
+      const u=i/SUB;
+      const wx=x0+u*step,wz=z0+v*step;
+      /* 双线性取地面高度（与 height 网格一致，不必再采样一次 visualH） */
+      const h=nfLerp(nfLerp(cy[0],cy[1],u),nfLerp(cy[3],cy[2],u),v);
+      const p=project({x:wx,y:bayWaveY(wx,wz,t),z:wz});
+      const k=j*N+i;
+      /* v2.30：原来只要有一个节点投影失败（z<1.2，常见于脚下的大格子跨越
+         相机后方）就 return，整格水面凭空消失 —— 那就是"走两步河底露出来"。
+         改成把失败节点标成 NaN，只跳过用到它的那一小片。 */
+      if(!p){GH[k]=NaN;SX[k]=0;SY[k]=0;continue;}
+      SX[k]=p.x;SY[k]=p.y;GH[k]=h;
+    }
+  }
+  const dx0=c.mx-cam.pos.x,dz0=c.mz-cam.pos.z,dl=Math.hypot(dx0,dz0)||1;
+  /* v2.30 太阳反光从"暖沙色 + 七次方"改成"冷白 + 三次方"。
+     原来混的是 [255,214,164]（正是一块干沙的颜色），而且是按格心算方向、
+     取七次方 —— 阈值一过整格跳成沙色，大片区域读起来就是"河底从水里冒出来"。
+     相机一移动，这条反光带扫过别的格子，于是"走两步就露一次"。 */
+  const gl=Math.pow(Math.max(0,(dx0*NF_SUN.x+dz0*NF_SUN.z)/dl),3);
+  const EX=0.75*TERR_SCALE;
+  for(let j=0;j<SUB;j++)for(let i=0;i<SUB;i++){
+    const k00=j*N+i,k10=k00+1,k11=k00+N+1,k01=k00+N;
+    const g0=GH[k00],g1=GH[k10],g2=GH[k11],g3=GH[k01];
+    if(g0!==g0||g1!==g1||g2!==g2||g3!==g3)continue;      // 含失败节点
+    const h=[g0-LV,g1-LV,g2-LV,g3-LV];
+    if(h[0]>0&&h[1]>0&&h[2]>0&&h[3]>0)continue;
+    const P=[{x:SX[k00],y:SY[k00]},{x:SX[k10],y:SY[k10]},{x:SX[k11],y:SY[k11]},{x:SX[k01],y:SY[k01]}];
+    /* Sutherland–Hodgman：只保留 h<0 的部分 */
+    const out=[];
+    for(let k=0;k<4;k++){
+      const k2=(k+1)%4,ha=h[k],hb=h[k2];
+      if(ha<0)out.push(P[k]);
+      if((ha<0)!==(hb<0)){
+        const tt=ha/(ha-hb);
+        out.push({x:P[k].x+(P[k2].x-P[k].x)*tt,y:P[k].y+(P[k2].y-P[k].y)*tt});
+      }
+    }
+    if(out.length<3)continue;
+    const dep=clamp(-(h[0]+h[1]+h[2]+h[3])*0.25,0,120);
+    let ax=0,ay=0;
+    for(const q of out){ax+=q.x;ay+=q.y;}
+    ax/=out.length;ay/=out.length;
+    const wc=nfWaterColor(ay,dep);
+    if(gl>0.01){const ga=Math.min(0.16,gl*0.16);for(let k=0;k<3;k++)wc[k]=nfLerp(wc[k],[246,241,232][k],ga);}
+    ctx.beginPath();
+    for(let k=0;k<out.length;k++){
+      const dx=out[k].x-ax,dy=out[k].y-ay,l=Math.hypot(dx,dy)||1;
+      const X=out[k].x+dx/l*EX,Y=out[k].y+dy/l*EX;
+      if(k===0)ctx.moveTo(X,Y);else ctx.lineTo(X,Y);
+    }
+    ctx.closePath();
+    ctx.fillStyle=nfRGB(wc[0]|0,wc[1]|0,wc[2]|0);
+    ctx.fill();
+  }
+  /* 波纹短划：一条路径一次 fill，只在近处水面撒 */
+  const nW=c.depth<45?4:(c.depth<100?2:(c.depth<180?1:0));
+  if(nW){
+    let any=false;
+    ctx.beginPath();
+    for(let k=0;k<nW;k++){
+      const u=hash2(c.wi*17+k*7+1,c.wj*13-k*5+3),v=hash2(c.wi*29-k*11+5,c.wj*23+k*9+2);
+      const wx=x0+u*step,wz=z0+v*step;
+      if(nfWaterD(wx,wz)>-1.5)continue;
+      const p=project({x:wx,y:bayWaveY(wx,wz,t)+0.06,z:wz});
+      if(!p)continue;
+      const len=clamp(p.s*1.4,1.2,9),hh=Math.max(0.7,len*0.15);
+      ctx.rect(p.x-len*0.5,p.y-hh*0.5,len,hh);
+      any=true;
+    }
+    if(any){ctx.fillStyle='rgba(236,248,240,0.22)';ctx.fill();}
+  }
+  return true;
+}
+/* v2.38 视线遮挡测试：从观察点到目标点沿视线采样地形，
+   中途地形高于视线即判定被山挡住。云与岸沫都用它，避免"隔着山体看到"。
+   skipEnd：终点附近不测（岸沫终点就贴在地面上，否则会被自己挡住）。 */
+function sightBlocked(ax,ay,az, bx,by,bz, steps, skipEnd){
+  const n=steps||8, lim=n-(skipEnd||0);
+  const dx=bx-ax,dy=by-ay,dz=bz-az;
+  for(let i=1;i<lim;i++){
+    const t=i/n;
+    if(terrainH(ax+dx*t,az+dz*t)>ay+dy*t+0.6)return true;
+  }
+  return false;
+}
+/* 岸线碎浪：沿着解析岸线画一条很淡的奶油色细线，水陆之间才有"湿边"。
+   两条岸（玩家这侧 + 湖对岸），只取玩家附近 ±340 的范围。 */
+function drawShoreFoam(){
+  const t=game.time;
+  const x0=player.pos.x-340,x1=player.pos.x+340;
+  const lines=[
+    (x)=>nfShoreZ(x)-0.8+Math.sin(t*0.8+x*0.05)*0.9,
+    (x)=>nfLakeCenter(x)-nfLakeHalfW(x)+0.8+Math.sin(t*0.7+x*0.043+2)*0.9
+  ];
+  for(let L=0;L<lines.length;L++){
+    ctx.beginPath();let started=false;
+    for(let x=x0;x<=x1;x+=5){
+      const z=lines[L](x), wy=bayWaveY(x,z,t)+0.05;
+      const p=project({x,y:wy,z});
+      if(!p){started=false;continue;}
+      if(p.y<0||p.y>H+20){started=false;continue;}
+      /* v2.38：岸沫被中间山体挡住时断开，不再隔山透出白线。
+         每 3 个采样点测一次视线（x 步长 5 → 每 15 世界单位），省算力。 */
+      if(((x-x0)/5|0)%3===0 && sightBlocked(cam.pos.x,cam.pos.y,cam.pos.z,x,wy,z,8,2)){
+        started=false;continue;
+      }
+      if(!started){ctx.moveTo(p.x,p.y);started=true;}else ctx.lineTo(p.x,p.y);
+    }
+    /* 一条 2.4px 的实线横穿全屏，读起来像有人拿白笔描了一条边。
+       改成断续、渐细、随距离淡出：近处才有沫，远处水线自己就糊掉了。 */
+    ctx.strokeStyle='rgba(255,248,232,0.30)';ctx.lineWidth=1.3;ctx.lineCap='butt';
+    ctx.setLineDash([9,17]);ctx.stroke();ctx.setLineDash([]);
+  }
+}
+/* v2.24c 贴地花浪拖痕：单朵花实例太小，压弯在屏幕上读不出来。
+   这里沿玩家身后画一层贴地的短花瓣线，越远越淡、越宽，形成一条被吹开的花沟。 */
+function drawWakeTrail(){
+  const v=player.vel||{x:0,y:0,z:0};
+  const spd=Math.hypot(v.x,v.z);
+  if(spd<10)return;
+  const gh=visualH(player.pos.x,player.pos.z);
+  if(player.pos.y-gh>48)return;
+  const dx=v.x/spd,dz=v.z/spd;
+  const pw=project(player.pos);
+  if(!pw)return;
+  /* 底层柔光花沟：一条被气流压开的淡粉色带，短线只做细节。 */
+  for(let i=0;i<10;i++){
+    const back=2+i*4.6;
+    const x=player.pos.x-dx*back, z=player.pos.z-dz*back;
+    if(nfVegFlower(x,z)<0.2)continue;
+    const p=project({x,y:visualH(x,z)+0.5,z});
+    if(!p)continue;
+    const rr=clamp(p.s*(2.6+back*0.13),4,38);
+    const a=(1-back/50)*0.24;
+    const g=ctx.createRadialGradient(p.x,p.y,rr*0.15,p.x,p.y,rr);
+    g.addColorStop(0,`rgba(226,186,132,${a})`);
+    g.addColorStop(1,'rgba(226,186,132,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.ellipse(p.x,p.y,rr*1.35,rr*0.55,0,0,6.283);ctx.fill();
+  }
+  const n=20;let drawn=0;
+  for(let i=0;i<n;i++){
+    const back=1+(i/n)*46;
+    const lat=(hash2(i*17+((game.time*18)|0),i*29)-0.5)*(7+back*0.32);
+    const x=player.pos.x-dx*back-dz*lat;
+    const z=player.pos.z-dz*back+dx*lat;
+    if(nfVegFlower(x,z)<0.2)continue;
+    const p=project({x,y:visualH(x,z)+0.4,z});
+    if(!p)continue;
+    const a=(1-back/48)*0.85*(0.6+0.4*hash2(i*11,i*7));
+    if(a<=0.02)continue;
+    let ax=p.x-pw.x,ay=p.y-pw.y;
+    const l=Math.hypot(ax,ay)||1;ax/=l;ay/=l;
+    const r=clamp(p.s*0.22,1,5), ang=Math.atan2(ay,ax);
+    // 扁椭圆模拟被压平的花簇，细线指向外侧补方向感
+    ctx.fillStyle=`rgba(196,124,70,${(a*0.85).toFixed(3)})`;
+    ctx.beginPath();ctx.ellipse(p.x,p.y,r*1.9,r*0.5,ang,0,6.283);ctx.fill();
+    ctx.strokeStyle=`rgba(240,214,164,${a.toFixed(3)})`;
+    ctx.lineWidth=Math.max(1,r*0.5);
+    ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+ax*r*3.0,p.y+ay*r*3.0);ctx.stroke();
+    drawn++;
+  }
+  drawWakeTrail._n=drawn;
+}
+/* ===== v2.26 秋林：参考项目的森林是"成片的块"，不是均匀撒点 ====
+   针叶是深松绿的三层锥，阔叶是铁锈/琥珀色的两三团冠；
+   树影朝背光方向拉长（太阳很低，影子很长）。 */
+function forgeTree(x,z,h){
+  if(h<0.9||h>14.2)return 0;                 // 水下与秃岩顶不长树
+  const f=forestK(x,z);
+  if(f<0.12)return 0;
+  const r=hash2((x|0)+401,(z|0)-197);
+  if(r>f*1.75)return 0;
+  return r<f*0.34?6:(r<f*0.60?5:(r<f*0.82?4:(r<f*0.95?3:2)));
+}
+const TREE_DARK=[[50,58,50],[60,72,58],[72,86,64]];
+const TREE_AUT=[[150,84,62],[176,100,64],[196,124,70],[164,110,60],[198,146,80],[128,94,56]];
+function drawCellTrees(c){
+  const n=c.tree|0;
+  if(!n)return;
+  const step=QUALITY.step,t=game.time;
+  for(let k=0;k<n;k++){
+    const u=hash2(c.wi*61+k*17+9,c.wj*47-k*23+4);
+    const v=hash2(c.wi*29-k*11+13,c.wj*71+k*31+2);
+    const wx=c.x0+u*step,wz=c.z0+v*step;
+    const wy=(c.cy[0]*(1-u)+c.cy[1]*u)*(1-v)+(c.cy[3]*(1-u)+c.cy[2]*u)*v;
+    /* v2.30：门控原来只看格心高度（c.vh），陡岸格子的水下那半边照样长树，
+       看着就是"水面上插着几棵树"。按树根自己的高度再拦一次。 */
+    if(wy<NF_WATER_LV+0.35)continue;
+    const b=project({x:wx,y:wy,z:wz});
+    if(!b||b.z>420)continue;
+    const hs=hash2(c.wi*7+k*3+1,c.wj*13-k*5+2);
+    /* 高度收一点：之前能长到 10 单位，近处一棵树能糊掉半屏，而且几棵之间
+       大小差得离谱，看着像贴纸。 */
+    const Hh=(3.8+hs*3.4)*(0.92+0.16*hash2(c.wi*5+k,c.wj*3-k));
+    const hpx=Hh*b.s;
+    if(hpx<2.5)continue;
+    const conifer=hash2(c.wi*9+k*5+3,c.wj*11-k*3+8)>0.55;
+    /* 影子：太阳压得很低，影长 = 树高 × 1.4，朝背光的左后方向拉 */
+    ctx.fillStyle=`rgba(62,50,74,${(0.14+hs*0.06).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.ellipse(b.x-hpx*0.34,b.y+1,hpx*0.42,hpx*0.13,0,0,6.283);ctx.fill();
+    /* 远景：一个小三角/小圆。阈值压到 8px，再小就只是噪点。 */
+    if(hpx<8||b.z>300){
+      const col=conifer?TREE_DARK[1]:TREE_AUT[(hs*3)|0];
+      ctx.fillStyle=nfRGB(col[0],col[1],col[2]);
+      ctx.beginPath();
+      if(conifer){ctx.moveTo(b.x,b.y-hpx*1.45);ctx.lineTo(b.x-hpx*0.24,b.y);ctx.lineTo(b.x+hpx*0.24,b.y);}
+      else ctx.ellipse(b.x,b.y-hpx*0.7,hpx*0.32,hpx*0.4,0,0,6.283);
+      ctx.fill();
+      continue;
+    }
+    const sway=Math.sin(t*0.9+wx*0.08+wz*0.05)*(0.16+hs*0.3)*hpx*0.035;
+    const tx=b.x+sway,ty=b.y-hpx;
+    ctx.strokeStyle='#4b3524';
+    ctx.lineWidth=Math.max(1,hpx*0.045);
+    ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(tx,ty+hpx*0.70);ctx.stroke();
+    if(conifer){
+      /* 针叶：三层锥，底宽顶窄；每层右缘留一道受光的浅边（太阳在右前）。 */
+      for(let L=0;L<3;L++){
+        const j=hash2(c.wi*13+k*7+L,c.wj*17-k*5-L);
+        const yb=ty+hpx*(0.40+L*0.21);
+        const rx=hpx*(0.235-L*0.052)*(0.92+0.16*j);
+        const col=TREE_DARK[L];
+        ctx.fillStyle=nfRGB(col[0],col[1],col[2]);
+        ctx.beginPath();
+        ctx.moveTo(tx+(j-0.5)*hpx*0.04,yb-hpx*(0.44+0.05*j));
+        ctx.lineTo(b.x-rx,yb);
+        ctx.quadraticCurveTo(b.x,yb+hpx*0.04,b.x+rx,yb);
+        ctx.closePath();ctx.fill();
+        /* 受光边：一层只有一笔，三层合起来读作"树在发光" */
+        ctx.strokeStyle=nfRGB(col[0]+22,col[1]+26,col[2]+14);
+        ctx.lineWidth=Math.max(0.6,hpx*0.018);
+        ctx.beginPath();ctx.moveTo(tx+(j-0.5)*hpx*0.04,yb-hpx*(0.44+0.05*j));
+        ctx.lineTo(b.x+rx*0.94,yb-hpx*0.02);ctx.stroke();
+      }
+    }else{
+      /* 阔叶：底团暗、上团亮，冠幅比针叶宽一圈，色相在铁锈/琥珀之间 */
+      const base=TREE_AUT[(hash2(c.wi*3+k,c.wj*5+k)*4)|0];
+      const rx=hpx*0.34,ry=hpx*0.28;
+      ctx.fillStyle=nfRGB(base[0]*0.72|0,base[1]*0.72|0,base[2]*0.72|0);
+      ctx.beginPath();ctx.ellipse(tx,ty+hpx*0.52,rx*0.92,ry*0.80,0,0,6.283);ctx.fill();
+      for(let q=0;q<2;q++){
+        const j=hash2(c.wi*11+k*3+q,c.wj*19-k*7+q);
+        const ox=(q?0.52:-0.46)*rx*(0.7+0.5*j);
+        const oy=(q?0.12:-0.06)*hpx+(q?-1:0)*ry*0.2;
+        ctx.beginPath();ctx.ellipse(tx+ox,ty+hpx*0.46+oy,rx*(0.56+0.14*j),ry*0.70,0,0,6.283);ctx.fill();
+      }
+      const lit=TREE_AUT[4];
+      const jl=hash2(c.wi*23+k,c.wj*29-k);
+      ctx.fillStyle=nfRGB(nfLerp(base[0],lit[0],0.42+jl*0.34)|0,
+                          nfLerp(base[1],lit[1],0.42+jl*0.34)|0,
+                          nfLerp(base[2],lit[2],0.42+jl*0.34)|0);
+      ctx.beginPath();ctx.ellipse(tx+rx*0.10,ty+hpx*0.34,rx*0.60,ry*0.56,0,0,6.283);ctx.fill();
+    }
+  }
+}
+/* ===== v2.26 干草层：参考项目的地面是橄榄/金黄的干草地 =====
+   草色不再是正午的翠绿，而是被夕阳晒过的麦秆色；密度也降下来，
+   细节交给树与灌木 —— 参考项目里草地本身几乎是平的一片色。 */
+function drawCellGrass(c){
+  if(c.depth>110||!c.pr)return;            // 远景草叶不到 1px，纯浪费
+  if(c.vh<0.35||c.baseH>12.5)return;       // 水下与秃岩不长草（山势不计入门控）
+  if(nfVegFlower(c.mx,c.mz)<0.25)return;   // 沙滩/水线不长草
+  /* v2.35：去掉地面草叶。底色本身仍是橄榄/金黄的草地色，
+     但不再逐根画草叶 —— 近景只剩树、灌木与零星碎石，地面干净。 */
+  const step=QUALITY.step;
+  const y00=c.cy[0],y10=c.cy[1],y01=c.cy[3],y11=c.cy[2];
+  /* 碎石：草地上零星几颗深色小石，给近景一点"可数的东西" */
+  if(c.depth<70&&hash2(c.wi*7+3,c.wj*11-5)>0.45){
+    ctx.beginPath();
+    let any=false;
+    const ns=1+((hash2(c.wi*5,c.wj*9)*2)|0);
+    for(let k=0;k<ns;k++){
+      const u=hash2(c.wi*13+k*7+5,c.wj*17-k*3+9),v=hash2(c.wi*19-k*5,c.wj*23+k*11);
+      const wx=c.x0+u*step,wz=c.z0+v*step;
+      if(nfWaterD(wx,wz)<1.5)continue;
+      const wy=(y00*(1-u)+y10*u)*(1-v)+(y01*(1-u)+y11*u)*v;
+      const p=project({x:wx,y:wy+0.05,z:wz});
+      if(!p)continue;
+      const rr=clamp(p.s*0.14,0.6,4.5);
+      ctx.moveTo(p.x+rr,p.y);
+      ctx.ellipse(p.x,p.y,rr,rr*0.62,0,0,6.283);
+      any=true;
+    }
+    if(any){ctx.fillStyle='rgba(96,88,100,0.55)';ctx.fill();}
+  }
+}
+/* ===== v2.26 灌木/落叶层：替换原来的粉色花海 =====
+   参考项目的坡面是成片的低矮灌木与落叶堆，颜色在铁锈/琥珀/橄榄之间；
+   它们不是"花"，所以没有花茎与花心，就是贴地的一小团，被气流一吹就倒。
+   仍然按颜色分桶批量 fill，保证一层只有几次 canvas 调用。 */
+const SHRUB_COLORS=['#8c5442','#a2603c','#b4783c','#7a6a48','#94a06a','#6e7a4a','#c08a4a'];
+const SHN=48;
+const SX=new Float32Array(SHN),SY=new Float32Array(SHN),SR=new Float32Array(SHN),
+      SB=new Float32Array(SHN),SCi=new Int8Array(SHN);
+const SCNT=new Int16Array(SHRUB_COLORS.length+1),SSTART=new Int16Array(SHRUB_COLORS.length+1),
+      SCUR=new Int16Array(SHRUB_COLORS.length+1),SORD=new Int16Array(SHN);
+function drawCellShrubs(c){
+  if(c.vh<0.4||c.baseH>13)return;
+  const veg=nfVegFlower(c.mx,c.mz);
+  if(veg<0.3)return;
+  const k=flowerMix(c.mx,c.mz)*veg;
+  if(k<0.12)return;
+  const step=QUALITY.step,t=game.time;
+  let n=Math.round((c.depth<45?10:(c.depth<95?7:(c.depth<180?4:2)))*k);
   if(QUALITY.adaptive===2)n=Math.max(1,(n*0.5)|0);
   else if(QUALITY.adaptive===1)n=Math.max(1,(n*0.72)|0);
   const y00=c.cy[0],y10=c.cy[1],y01=c.cy[3],y11=c.cy[2];
-  // 尾流压弯：靠近主角且高速时，花向速度反方向倾倒
   const pv=player.vel||{x:0,y:0,z:0};
-  const spd=Math.hypot(pv.x,pv.z);
-  for(let k=0;k<n;k++){
-    const u=hash2(c.i*37+k*13+5,c.j*53-k*7+11);
-    const v=hash2(c.i*19-k*29+3,c.j*31+k*17+7);
-    const wx=c.x0+u*step, wz=c.z0+v*step;
+  const spd=Math.hypot(pv.x,pv.z)||1;
+  const pdx=pv.x/spd,pdz=pv.z/spd,wakeOn=spd>8;
+  let cnt=0;
+  for(let q=0;q<n;q++){
+    const u=hash2(c.wi*37+q*13+5,c.wj*53-q*7+11);
+    const v=hash2(c.wi*19-q*29+3,c.wj*31+q*17+7);
+    const wx=c.x0+u*step,wz=c.z0+v*step;
     const wy=(y00*(1-u)+y10*u)*(1-v)+(y01*(1-u)+y11*u)*v;
-    const stem=0.35+hash2(c.i+k*3,c.j+k*5)*0.5;
-    // 风摆：低频 gust + 位置相位正弦（原作 sway 两分量）
+    if(wy<NF_WATER_LV+0.25)continue;        // v2.30 灌木不长在浅水里
     const ph=wx*0.06+wz*0.045;
     const gust=0.5+0.5*Math.sin(t*0.7+ph);
-    const swX=(0.55*(0.2+0.8*gust)*0.5+0.12*Math.sin(t*2.1+ph))*stem;
-    const swZ=(0.22*(0.2+0.8*gust)*0.5+0.10*Math.cos(t*1.7+ph))*stem;
-    let bx=wx+swX, bz=wz+swZ, by=wy+stem;
-    if(spd>10){
-      const dd=Math.hypot(wx-player.pos.x,wz-player.pos.z);
-      if(dd<14){const push=(1-dd/14)*clamp(spd/40,0,1)*stem;bx-=pv.x/spd*push;bz-=pv.z/spd*push;by-=push*0.6;}
-    }
-    const p=project({x:bx,y:by,z:bz});
-    if(!p)continue;
-    const f=flowerMix(wx,wz);
-    let ci=f<0.22?(hash2(c.i*7+k,c.j*7+k)*3)|0
-             :(3+(hash2(c.i*11+k,c.j*13+k)*(FLOWER_COLORS.length-3))|0);
-    if(ci>=FLOWER_COLORS.length)ci=FLOWER_COLORS.length-1;
-    const col=FLOWER_COLORS[ci];
-    const r=clamp(p.s*(0.30+stem*0.25),0.5,6);
-    if(r<1.4){                            // 远景：单色方点（最快）
-      ctx.fillStyle=col;
-      const d=Math.max(1,r*1.3);ctx.fillRect(p.x-d*0.5,p.y-d*0.5,d,d);
-    }else if(r<3.2){                      // 中景：椭圆花瓣 + 花心
-      ctx.fillStyle=col;ctx.beginPath();ctx.ellipse(p.x,p.y,r*0.95,r*0.62,0,0,6.283);ctx.fill();
-      ctx.fillStyle='#ffe29a';ctx.beginPath();ctx.arc(p.x,p.y,r*0.3,0,6.283);ctx.fill();
-    }else{                                // 近景：五瓣 + 花心
-      ctx.fillStyle=col;
-      const a0=hash2(c.i+k,c.j-k)*6.283;
-      for(let q=0;q<5;q++){
-        const ang=a0+q*1.2566;
-        ctx.beginPath();ctx.ellipse(p.x+Math.cos(ang)*r*0.62,p.y+Math.sin(ang)*r*0.62,r*0.5,r*0.34,ang,0,6.283);ctx.fill();
+    let bx=wx+0.16*Math.sin(t*1.7+ph)*gust, bz=wz+0.10*Math.cos(t*1.5+ph)*gust, by=wy;
+    let bend=0;
+    if(wakeOn){
+      const rx=wx-player.pos.x,rz=wz-player.pos.z;
+      const back=-(rx*pdx+rz*pdz),side=Math.abs(rx*pdz-rz*pdx);
+      if(back>-4&&back<52){
+        const width=9+Math.max(0,back)*0.27;
+        if(side<width)bend=(1-Math.max(0,back)/52)*(1-side/width)*clamp((spd-8)/26,0,1);
+        if(bend>0){bx-=pdx*bend*1.8;bz-=pdz*bend*1.8;}
       }
-      ctx.fillStyle='#ffe29a';ctx.beginPath();ctx.arc(p.x,p.y,r*0.3,0,6.283);ctx.fill();
     }
+    const p=project({x:bx,y:by+0.35,z:bz});
+    if(!p)continue;
+    const r=clamp(p.s*(0.22+hash2(c.wi+q,c.wj-q)*0.18),0.5,7);
+    SX[cnt]=p.x;SY[cnt]=p.y;SR[cnt]=r;SB[cnt]=bend;
+    SCi[cnt]=(hash2(c.wi*7+q*3,c.wj*7+q*5)*SHRUB_COLORS.length)|0;
+    if(SCi[cnt]>=SHRUB_COLORS.length)SCi[cnt]=SHRUB_COLORS.length-1;
+    cnt++;
+  }
+  if(!cnt)return;
+  const NC=SHRUB_COLORS.length;
+  SCNT.fill(0);
+  for(let i=0;i<cnt;i++)SCNT[SCi[i]]++;
+  let acc=0;
+  for(let ci=0;ci<NC;ci++){SSTART[ci]=acc;SCUR[ci]=acc;acc+=SCNT[ci];}
+  SSTART[NC]=acc;
+  for(let i=0;i<cnt;i++)SORD[SCUR[SCi[i]]++]=i;
+  for(let ci=0;ci<NC;ci++){
+    if(!SCNT[ci])continue;
+    ctx.beginPath();
+    for(let q=SSTART[ci];q<SSTART[ci+1];q++){
+      const i=SORD[q],rr=SR[i];
+      if(SB[i]>0.25){                       // 被尾流压扁的灌木：沿气流方向拉长
+        ctx.moveTo(SX[i]+rr*1.8,SY[i]);
+        ctx.ellipse(SX[i],SY[i],rr*(1.5+SB[i]),rr*0.45,0,0,6.283);
+      }else if(rr<1.3){
+        ctx.rect(SX[i]-rr*0.6,SY[i]-rr*0.6,rr*1.2,rr*1.2);
+      }else{
+        ctx.moveTo(SX[i]+rr,SY[i]);
+        ctx.ellipse(SX[i],SY[i],rr,rr*0.72,0,0,6.283);
+      }
+    }
+    ctx.fillStyle=SHRUB_COLORS[ci];ctx.fill();
+  }
+}
+/* ===== v2.26 远山全景：参考项目里最抓眼的一层 =====
+   三层山脊（近 600 / 中 1050 / 远 1600），颜色逐层被大气透视拉向雾色，
+   山脊线由"方位向的低频正弦 + fbm"给出，同一条山脊在所有距离上都成立，
+   所以三层是同一片山的不同远近，而不是三张贴纸。
+   烘焙一次（1024×256），运行时按方位取样，零开销。 */
+/* ===== v2.26 远山：粗网格实体 =====
+   一开始试过把远山烘成全景贴图，但那种画法只有轮廓没有块面：整座山一片平色，
+   看着像纸板。这里改成真正的粗网格（84 单位一格）—— 法线光照 + 大气透视，
+   山脊有明暗、有前后遮挡，和近景共用同一套渲染思路。 */
+/* 山峰用"峰核"摆放（参考项目 peaks 数组的思路）：每座山有自己的位置、半径、
+   高度，峰与峰之间靠脊线噪声连起来。这样轮廓才有主峰、次峰、垭口，
+   而不是一圈等高墙。 */
+/* v2.34：峰核整体向湖区收近到 0.70 倍，半径放大到 1.15 倍。
+   原来峰心距原点 890~1190、山脚最近也在 390 以外，近景网格（手机 275 /
+   桌面 350）根本吃不到山体，"地形随山势起伏"无从谈起。收近后山脚进入
+   近景边缘，玩家沿湖飞行就能看到地面爬坡；水面由 worldH 单独保住。 */
+const MT_PEAKS=[
+  [-392,-490,437,150],[84,-616,540,205],[490,-392,391,130],
+  [-714,-238,529,175],[826,-98,483,140],[-238,602,575,160],[574,532,494,145]
+];
+function nfMountainField(x,z){
+  const r=Math.hypot(x,z);
+  if(r<150)return 0;
+  let h=0;
+  for(let i=0;i<MT_PEAKS.length;i++){
+    const pk=MT_PEAKS[i];
+    const dx=(x-pk[0])/pk[2],dz=(z-pk[1])/pk[2],k=1-Math.hypot(dx,dz);
+    if(k>0)h+=Math.pow(k,1.7)*pk[3];
+  }
+  const a2=Math.atan2(x,z);
+  h+=Math.max(0,Math.sin(a2*3.1+1.2)*0.5+Math.sin(a2*7.3-0.4)*0.25)*34*nfSS(300,740,r);
+  h+=nfFbm(x*0.0026+5,z*0.0026-3)*26;
+  /* v2.31 远景丘陵带：MT_PEAKS 只有 7 座，峰与峰之间的方位山高直接落到 0，
+     从近景边缘一直空到地平线。这里再叠一条所有方位都有的 20~120 高丘陵，
+     山脚就连成一片，任何方向看过去都是"远处有地面、地面尽头有山"。 */
+  h+=(0.35+1.15*nfFbm(x*0.0017+9,z*0.0017-6))*62*nfSS(240,660,r);
+  /* v2.34 山脚压到 150 起（原来 280），近景网格边缘就能吃到缓坡 */
+  return Math.max(0,h)*nfSS(150,380,r);
+}
+const MT_TONE=[112,110,136],MT_TONE_HI=[150,146,168],MT_SNOW=[238,232,226];
+function drawMountains(){
+  const step=84,R=1900;
+  const cx=Math.round(cam.pos.x/step),cz=Math.round(cam.pos.z/step);
+  const rad=Math.ceil(R/step),g=rad*2+1;
+  if(!drawMountains._H||drawMountains._H.length!==g*g)drawMountains._H=new Float32Array(g*g);
+  const H=drawMountains._H,ox=(cx-rad)*step,oz=(cz-rad)*step;
+  for(let i=0;i<g;i++)for(let j=0;j<g;j++)H[i*g+j]=nfMountainField(ox+i*step,oz+j*step);
+  /* v2.34：把同一张粗网格暴露给 worldH()，近景/裙边双线性取样，
+     保证"脚下的山"和"远处的山"是同一高度场，不会在接缝处错位。 */
+  MT_SAMPLE={H,g,ox,oz,step};
+  const list=drawMountains._L||(drawMountains._L=[]);list.length=0;
+  for(let i=0;i<g-1;i++)for(let j=0;j<g-1;j++){
+    const x0=ox+i*step,z0=oz+j*step,mx=x0+step*0.5,mz=z0+step*0.5;
+    const vx=mx-cam.pos.x,vz=mz-cam.pos.z,d=Math.hypot(vx,vz);
+    if(d<320||d>R)continue;
+    if(vx*cam.f.x+vz*cam.f.z<d*0.22)continue;             // 视锥粗剔除
+    const h00=H[i*g+j],h10=H[(i+1)*g+j],h11=H[(i+1)*g+j+1],h01=H[i*g+j+1];
+    if(Math.max(h00,h10,h11,h01)<1.5)continue;
+    list.push({x0,z0,h00,h10,h11,h01,d,mx,mz});
+  }
+  list.sort((a,b)=>b.d-a.d);
+  for(const q of list){
+    const p0=project({x:q.x0,y:q.h00,z:q.z0}),
+          p1=project({x:q.x0+step,y:q.h10,z:q.z0}),
+          p2=project({x:q.x0+step,y:q.h11,z:q.z0+step}),
+          p3=project({x:q.x0,y:q.h01,z:q.z0+step});
+    if(!p0||!p1||!p2||!p3)continue;
+    const h=(q.h00+q.h10+q.h11+q.h01)*0.25;
+    const dhx=(q.h10+q.h11-q.h00-q.h01)/(2*step);
+    const dhz=(q.h01+q.h11-q.h00-q.h10)/(2*step);
+    const steep=Math.hypot(dhx,dhz);
+    const nl=(-dhx*NF_SUN.x+NF_SUN.y-dhz*NF_SUN.z)/Math.sqrt(1+steep*steep);
+    const lit=clamp(0.62+nl*0.62,0.34,1.02);
+    const snow=nfSS(118,168,h)*(0.55+0.45*nl);
+    const dx=q.mx-cam.pos.x,dz=q.mz-cam.pos.z,dl=Math.hypot(dx,dz)||1;
+    const air=nfAirColor(dx/dl,dz/dl);
+    /* v2.31 雾化系数 0.0016 → 0.0010、上限 0.86 → 0.78：原来 1000 单位处的山
+       已经被雾吃掉七成，灰蒙蒙一片，用户直接读成"没有山峦"。 */
+    const fog=clamp(1-Math.exp(-Math.max(0,q.d-300)*0.0010),0,0.78);
+    const c=[0,0,0];
+    for(let k=0;k<3;k++){
+      let v=nfLerp(MT_TONE[k],MT_TONE_HI[k],clamp(steep*0.5,0,1))*lit;
+      v=nfLerp(v,MT_SNOW[k],snow*0.55);
+      c[k]=Math.round(nfLerp(v,air[k],fog));
+    }
+    ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.lineTo(p3.x,p3.y);
+    ctx.closePath();ctx.fillStyle=nfRGB(c[0],c[1],c[2]);ctx.fill();
+  }
+}
+/* 地平线雾：把地形网格的最远一排和山脚揉在一起，避免一条硬边 */
+function drawHorizonHaze(){
+  const hz=camHorizonY();
+  if(hz===null||hz<-120)return;
+  /* v2.31 原来是一条 104px 高、0.55 不透明度的暖粉雾带，压在地平线上就是一条
+     横贯画面的粉白空白。收窄到 72px、降到 0.30，颜色也转成灰紫，只做柔边。 */
+  const g=ctx.createLinearGradient(0,hz-46,0,hz+26);
+  g.addColorStop(0,'rgba(206,188,192,0)');
+  g.addColorStop(0.55,'rgba(202,186,188,0.30)');
+  g.addColorStop(1,'rgba(198,184,182,0.12)');
+  ctx.fillStyle=g;ctx.fillRect(0,hz-46,W,72);
+}
+/* ===== v2.32 远景裙边 =====
+   近景地形网格的半径是 range*step（手机 11×25 = 275 单位），再往外一格都没有；
+   远山网格又只画 d>320 且高度>1.5 的格子。两者之间于是留下一条环带 ——
+   环带里没有任何几何，天空底色（地平线以下那层暖粉）直接露出来，画面上就是
+   一条横贯的浅色空白，把近景和远山隔断。
+   这里用 2 倍粗的格子（50 单位）把环带铺一层平色：陆地用地形色、湖/海用水色，
+   画进同一张 1/3 分辨率的底色缓冲（在近景之前、由远到近），放大+模糊之后
+   格边被吃掉，视觉上就是"地面一直延伸过去"。代价只有 200 来个多边形，
+   不含草/树这些满分辨率细节，因此比直接把 range 调大便宜一个数量级。 */
+function drawFarSkirt(step,range,EX){
+  const sk=step*2;
+  const inner=range*step;                  // 近景已覆盖到哪里
+  const outer=inner+340;                   // 再向外铺多远
+  const gx=Math.round(cam.pos.x/sk),gz=Math.round(cam.pos.z/sk);
+  const N=Math.ceil(outer/sk)+1;
+  const list=drawFarSkirt._L||(drawFarSkirt._L=[]);list.length=0;
+  const farTrees=drawFarSkirt._T||(drawFarSkirt._T=[]);farTrees.length=0;
+  const fx=cam.f.x,fz=cam.f.z;
+  for(let j=-N;j<=N;j++)for(let i=-N;i<=N;i++){
+    const x0=(gx+i)*sk,z0=(gz+j)*sk;
+    const mx=x0+sk*0.5,mz=z0+sk*0.5;
+    const dx=mx-cam.pos.x,dz=mz-cam.pos.z,dd=Math.hypot(dx,dz);
+    if(dd<inner*0.94||dd>outer)continue;
+    if(dx*fx+dz*fz<dd*0.12)continue;       // 视锥粗剔除（身后/侧面整片不投）
+    let h00=visualH(x0,z0),h10=visualH(x0+sk,z0),
+        h11=visualH(x0+sk,z0+sk),h01=visualH(x0,z0+sk);
+    /* 整格基本在水下 → 按水面（y=0）投影。否则它会比近景水面低几个单位，
+       屏幕上是往下错开的两三像素，接缝处会露出底色。 */
+    const wet=h00<NF_WATER_LV&&h10<NF_WATER_LV&&h11<NF_WATER_LV&&h01<NF_WATER_LV;
+    if(wet){h00=h10=h11=h01=0;}
+    const p0=project({x:x0,y:h00,z:z0}),p1=project({x:x0+sk,y:h10,z:z0}),
+          p2=project({x:x0+sk,y:h11,z:z0+sk}),p3=project({x:x0,y:h01,z:z0+sk});
+    if(!p0||!p1||!p2||!p3)continue;
+    list.push({dd,mx,mz,h00,h10,h11,h01,p0,p1,p2,p3,wet});
+    /* 远景树：近景网格的树在 275 单位处齐刷刷断掉，裙边如果是一张光板，
+       那条"树线"反而成了新的硬边。远树只有 2~5 像素高，位置压进一个数组，
+       后面按颜色合批一次填充，几乎不花时间。 */
+    if(QUALITY.trees&&!wet&&forestK(mx,mz)>0.16){
+      const n=2+((hash2(x0*0.37,z0*0.61)*3)|0);
+      for(let k=0;k<n;k++){
+        const u=hash2(x0*0.11+k*97.3,z0*0.19-k*57.7);
+        const v=hash2(x0*0.23-k*31.1,z0*0.13+k*93.7);
+        const tx=x0+u*sk,tz=z0+v*sk;
+        const ty=(h00*(1-u)+h10*u)*(1-v)+(h01*(1-u)+h11*u)*v;
+        if(ty<NF_WATER_LV+0.35)continue;
+        farTrees.push(tx,ty,tz,hash2(tx*7.1,tz*9.3));
+      }
+    }
+  }
+  list.sort((a,b)=>b.dd-a.dd);             // 由远到近，近的压远的
+  for(const q of list){
+    const avgH=(q.h00+q.h10+q.h11+q.h01)*0.25;
+    const minH=Math.min(q.h00,q.h10,q.h11,q.h01);
+    const dhx=(q.h10+q.h11-q.h00-q.h01)/(2*sk);
+    const dhz=(q.h01+q.h11-q.h00-q.h10)/(2*sk);
+    const col=terrainColor(q.mx,q.mz,avgH,dhx,dhz,q.dd);
+    let r=col[0],g=col[1],b=col[2];
+    const wm=q.wet?1:nfWaterMix(minH);
+    if(wm>0.004){
+      const cyc=(q.p0.y+q.p1.y+q.p2.y+q.p3.y)*0.25;
+      const wc=nfWaterColor(cyc,Math.max(0,NF_WATER_LV-avgH));
+      r=nfLerp(r,wc[0],wm);g=nfLerp(g,wc[1],wm);b=nfLerp(b,wc[2],wm);
+    }
+    const qcx=(q.p0.x+q.p1.x+q.p2.x+q.p3.x)*0.25;
+    const qcy=(q.p0.y+q.p1.y+q.p2.y+q.p3.y)*0.25;
+    ctx.beginPath();
+    let n=EX/Math.max(0.001,Math.hypot(q.p0.x-qcx,q.p0.y-qcy));
+    ctx.moveTo(qcx+(q.p0.x-qcx)*(1+n),qcy+(q.p0.y-qcy)*(1+n));
+    n=EX/Math.max(0.001,Math.hypot(q.p1.x-qcx,q.p1.y-qcy));
+    ctx.lineTo(qcx+(q.p1.x-qcx)*(1+n),qcy+(q.p1.y-qcy)*(1+n));
+    n=EX/Math.max(0.001,Math.hypot(q.p2.x-qcx,q.p2.y-qcy));
+    ctx.lineTo(qcx+(q.p2.x-qcx)*(1+n),qcy+(q.p2.y-qcy)*(1+n));
+    n=EX/Math.max(0.001,Math.hypot(q.p3.x-qcx,q.p3.y-qcy));
+    ctx.lineTo(qcx+(q.p3.x-qcx)*(1+n),qcy+(q.p3.y-qcy)*(1+n));
+    ctx.fillStyle=nfRGB(r|0,g|0,b|0);ctx.fill();
+  }
+}
+/* 远景树：按颜色合批。每棵只有 2~5 像素，逐个 beginPath+fill 的话开销全在
+   状态切换上；攒成一个路径一次 fill，几百棵也只是几次填充。 */
+function drawFarTrees(){
+  const T=drawFarSkirt._T;
+  if(!T||!T.length)return;
+  const n=T.length>>2;
+  const PATH=drawFarTrees._P||(drawFarTrees._P=[[],[],[],[],[],[],[]]);
+  for(const b of PATH)b.length=0;
+  for(let i=0;i<n;i++){
+    const b=project({x:T[i*4],y:T[i*4+1],z:T[i*4+2]});
+    if(!b||b.z>820)continue;
+    const hs=T[i*4+3];
+    const hpx=(3.4+hs*2.8)*b.s;
+    if(hpx<1.4)continue;
+    const bucket=hs>0.56?0:1+(((hs*13)|0)%6);
+    const P=PATH[bucket];
+    P.push(b.x,b.y-hpx*1.32,b.x-hpx*0.22,b.y,b.x+hpx*0.22,b.y);
+  }
+  for(let k=0;k<PATH.length;k++){
+    const P=PATH[k];
+    if(!P.length)continue;
+    const col=k===0?TREE_DARK[1]:TREE_AUT[(k-1)%TREE_AUT.length];
+    ctx.fillStyle=nfRGB(col[0],col[1],col[2]);
+    ctx.beginPath();
+    for(let i=0;i<P.length;i+=6){ctx.moveTo(P[i],P[i+1]);ctx.lineTo(P[i+2],P[i+3]);ctx.lineTo(P[i+4],P[i+5]);}
+    ctx.fill();
   }
 }
 function drawTerrain(){
-  // v2.13：自适应降档只改覆盖格数，不改变格子边长（保持 Forge 阶梯轮廓）
+  buildWaterGrad();
+  /* 注意：本函数后面有个局部 H（高度数组）会遮蔽全局画布高度 H，
+     合成离屏缓冲时要用这里先存下的画布尺寸。 */
+  const CW=W,CH=H;
   const step=QUALITY.step;
+  const LVW=NF_WATER_LV;
   const range=Math.max(8,QUALITY.range-(QUALITY.adaptive===2?4:(QUALITY.adaptive===1?2:0)));
   const cx=Math.round(player.pos.x/step),cz=Math.round(player.pos.z/step);
-  /* ① 角点共享：原实现每格算 4 次 terrainH（每次 5 层 fbm），
-     32×32 格 = 4096 次噪声；预计算 (2r+1)^2 个格点后只需 1089 次。
-     注意 range 是半宽：格数 (2*range)^2，角点数 (2*range+1)^2。 */
   const g=range*2+1;
   if(!drawTerrain._H||drawTerrain._H.length!==g*g){
     drawTerrain._H=new Float32Array(g*g);drawTerrain._VH=new Float32Array(g*g);
+    drawTerrain._BH=new Float32Array(g*g);
   }
-  const H=drawTerrain._H,VH=drawTerrain._VH, ox=(cx-range)*step, oz=(cz-range)*step;
-  /* v2.24：H 仍是碰撞高度 terrainH（sea 判定/着色/贴地关系不变）；
-     VH 是原作缓波视觉高度 visualH，只用于网格顶点与花朵贴地。 */
+  const HH=drawTerrain._H,VH=drawTerrain._VH,BH=drawTerrain._BH,
+        ox=(cx-range)*step,oz=(cz-range)*step;
+  if(!drawTerrain._C||drawTerrain._C.length!==g*g*3)drawTerrain._C=new Float32Array(g*g*3);
+  const CC=drawTerrain._C;
+  /* ① 高度：每个格点只算一次 */
   for(let i=0;i<g;i++)for(let j=0;j<g;j++){
     const wx=ox+i*step,wz=oz+j*step;
-    H[i*g+j]=terrainH(wx,wz);VH[i*g+j]=visualH(wx,wz);
+    /* 同一格点只算一次湖岸距离：worldH 与 baseH 共用 */
+    const d=nfWaterD(wx,wz),base=nfWorldH(wx,wz,d);
+    const vh=worldH(wx,wz,d);
+    HH[i*g+j]=vh;VH[i*g+j]=vh;
+    /* 植被的"岩顶/水下"门控仍按原来的湖谷高度，否则山腰以上树草整片消失 */
+    BH[i*g+j]=base;
   }
-  const cells=drawTerrain._cells||(drawTerrain._cells=[]); cells.length=0;
-  // 必须遍历 2*range 格（原版 i=-range..range-1），早期误写 i<range 导致地图只剩左半边
+  /* ② 着色：坡度直接由高度网格差分，不再额外采样噪声 */
+  for(let i=0;i<g;i++)for(let j=0;j<g;j++){
+    const wx=ox+i*step,wz=oz+j*step;
+    const im=i>0?i-1:i,ip=i<g-1?i+1:i;
+    const jm=j>0?j-1:j,jp=j<g-1?j+1:j;
+    const dhx=(HH[ip*g+j]-HH[im*g+j])/((ip-im)*step||1);
+    const dhz=(HH[i*g+jp]-HH[i*g+jm])/((jp-jm)*step||1);
+    const dc=Math.hypot(wx-cam.pos.x,wz-cam.pos.z);
+    const col=terrainColor(wx,wz,HH[i*g+j],dhx,dhz,dc);
+    const o=(i*g+j)*3;CC[o]=col[0];CC[o+1]=col[1];CC[o+2]=col[2];
+  }
+  const cells=drawTerrain._cells||(drawTerrain._cells=[]);cells.length=0;
   for(let i=0;i<range*2;i++)for(let j=0;j<range*2;j++){
     const x0=ox+i*step,z0=oz+j*step,x1=x0+step,z1=z0+step;
-    const corners=[{x:x0,y:VH[i*g+j],z:z0},{x:x1,y:VH[(i+1)*g+j],z:z0},
-                   {x:x1,y:VH[(i+1)*g+j+1],z:z1},{x:x0,y:VH[i*g+j+1],z:z1}];
-    const mx=(x0+x1)/2,mz=(z0+z1)/2,my=terrainH(mx,mz);
-    // 内联点积，避免每格 3 个临时对象
-    const depth=(mx-cam.pos.x)*cam.f.x+(my-cam.pos.y)*cam.f.y+(mz-cam.pos.z)*cam.f.z;
+    const cy=[VH[i*g+j],VH[(i+1)*g+j],VH[(i+1)*g+j+1],VH[i*g+j+1]];
+    const vh=(cy[0]+cy[1]+cy[2]+cy[3])*0.25;
+    const mx=(x0+x1)/2,mz=(z0+z1)/2;
+    const depth=(mx-cam.pos.x)*cam.f.x+(vh-cam.pos.y)*cam.f.y+(mz-cam.pos.z)*cam.f.z;
     if(depth<3)continue;
+    const corners=[{x:x0,y:cy[0],z:z0},{x:x1,y:cy[1],z:z0},{x:x1,y:cy[2],z:z1},{x:x0,y:cy[3],z:z1}];
     const pr=corners.map(project); if(pr.some(p=>!p))continue;
-    /* v2.13 实测：这里曾加屏幕包围盒剔除（少画约 840 格），
-       但 V8 对含该 continue 分支的循环反复 deopt，drawTerrain 反而从
-       1.6ms 涨到 11.6ms。已移除——少画格子不等于更快。 */
-    cells.push({pr,depth,h:my,sea:my<0,mx,mz,x0,z0,i,j,
-                cy:[VH[i*g+j],VH[(i+1)*g+j],VH[(i+1)*g+j+1],VH[i*g+j+1]],
-                tree:QUALITY.trees&&forgeTree(mx,mz,my)});
+    /* wi/wj 是"世界格号"，i/j 是数组下标。数组下标会随 range 变化（自适应降档
+       时 range 会从 11 掉到 9/7），于是同一块地在不同帧里拿到不同的 i/j ——
+       所有以 i/j 做哈希的植被（树、草、灌木、碎石）就会整片重新洗牌，
+       表现为"树木一直在变"。位置哈希必须锚在世界坐标上，不能锚在数组下标上。 */
+    const wi=Math.round(x0/step),wj=Math.round(z0/step);
+    /* v2.30：水面要不要画，不能看格心平均高度。跨岸格子（四角 -6/11/12/10）的
+       平均高度是 6.75，远大于 0，但格内靠近水那侧是实打实的水下 —— 按格心判就
+       整块跳过，露出一片湿沙色的"河底"。改成看格内最低角：只要有一角低于水线
+       就进水面绘制，由子片裁剪决定具体边界。 */
+    const minH=Math.min(cy[0],cy[1],cy[2],cy[3]);
+    /* vh/总高度用于投影；baseH（不含山）用于"哪儿长树/长草"的判断 */
+    const baseH=(BH[i*g+j]+BH[(i+1)*g+j]+BH[(i+1)*g+j+1]+BH[i*g+j+1])*0.25;
+    cells.push({pr,depth,h:vh,vh,baseH,dep:-vh,minH,sea:vh<0.05,mx,mz,x0,z0,i,j,wi,wj,cy,
+                tree:(QUALITY.trees&&vbTreeGate(baseH))?forgeTree(mx,mz,baseH):0});
   }
   cells.sort((a,b)=>b.depth-a.depth);
+  /* ===== v2.27 地面：两遍画 =====
+     ① 底色 + 水面 → 1/groundScale 分辨率的离屏缓冲，再双线性放大；
+     ② 草 / 灌木 / 树 / 岸沫 → 满分辨率，按远到近叠在柔和的底色上。
+     底色之所以柔：一方面降采样放大抹平了格边，另一方面颜色插值修成了真正的
+     双向插值（之前纵向插值取的是同一行里的 4 个值，相邻格颜色是错位的）。 */
+  const sc=clamp(QUALITY.groundScale,1,4);
+  const gbuf=groundBuffer(sc);
+  const mainCtx=ctx;
+  ctx=gbuf.getContext('2d');
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,gbuf.width,gbuf.height);
+  ctx.setTransform(1/sc,0,0,1/sc,0,0);
+  TERR_SCALE=sc;
+  const EX=0.9*sc;                          // 外扩量按缓冲像素折算
+  /* v2.32 先铺远景裙边，再压近景 */
+  drawFarSkirt(step,range,EX);
   for(const c of cells){
-    /* v2.24：原作是逐像素连续着色，整格平涂会出现大色块棋盘。这里把每格
-       细分成 3×3 子块，子块中心另行采样 terrainColor，屏幕顶点用格子四角
-       双线性插值（单格内透视非线性可忽略），显著消除色块感而不增加 project 调用。 */
-    const SUB=1;   // v2.24：回到单格填充，靠低频着色噪声消除色块（细分太耗帧率）
-    const step=QUALITY.step, sub=step/SUB;
     const p0=c.pr[0],p1=c.pr[1],p2=c.pr[2],p3=c.pr[3];
-    for(let si=0;si<SUB;si++)for(let sj=0;sj<SUB;sj++){
-      const u0=si/SUB,u1=(si+1)/SUB,v0=sj/SUB,v1=(sj+1)/SUB;
-      // 四角屏幕坐标（格内按 u=i 方向、v=j 方向双线性）
-      const P=(u,v)=>({
-        x:nfLerp(nfLerp(p0.x,p1.x,u),nfLerp(p3.x,p2.x,u),v),
-        y:nfLerp(nfLerp(p0.y,p1.y,u),nfLerp(p3.y,p2.y,u),v)
-      });
-      const a=P(u0,v0),b=P(u1,v0),d=P(u1,v1),e=P(u0,v1);
-      // 子块中心的世界坐标与碰撞高度（用于着色）
-      const wx=c.x0+(si+0.5)*sub, wz=c.z0+(sj+0.5)*sub;
-      const wh=terrainH(wx,wz);
-      const dsub=Math.hypot(wx-cam.pos.x,wz-cam.pos.z);
-      const col=terrainColor(wx,wz,wh,dsub,wh<0);
-      let fill=`rgb(${col[0]},${col[1]},${col[2]})`;
-      if(wh<0&&wh>-4){
-        const wave=0.5+0.5*Math.sin(game.time*1.6+wx*0.05+wz*0.04);
-        fill=`rgba(${col[0]},${col[1]+Math.round(wave*14)},${col[2]+Math.round(wave*18)},0.96)`;
+    const edge=Math.hypot(p1.x-p0.x,p1.y-p0.y);
+    const SUB=clamp(Math.round(edge/QUALITY.terrPx),1,QUALITY.terrMax);
+    const i0=Math.max(0,c.i-1),i1=c.i,i2=c.i+1,i3=Math.min(g-1,c.i+2);
+    const j0=Math.max(0,c.j-1),j1=c.j,j2=c.j+1,j3=Math.min(g-1,c.j+2);
+    const O0=[(i0*g+j0)*3,(i1*g+j0)*3,(i2*g+j0)*3,(i3*g+j0)*3];
+    const O1=[(i0*g+j1)*3,(i1*g+j1)*3,(i2*g+j1)*3,(i3*g+j1)*3];
+    const O2=[(i0*g+j2)*3,(i1*g+j2)*3,(i2*g+j2)*3,(i3*g+j2)*3];
+    const O3=[(i0*g+j3)*3,(i1*g+j3)*3,(i2*g+j3)*3,(i3*g+j3)*3];
+    const CY=c.cy;                          // 本格四角地面高度 TL/TR/BR/BL
+    const inv=1/SUB;
+    for(let si=0;si<SUB;si++){
+      const u0=si*inv,u1=u0+inv,uc=(u0+u1)*0.5;
+      const xA0=nfLerp(p0.x,p1.x,u0),yA0=nfLerp(p0.y,p1.y,u0);
+      const xB0=nfLerp(p0.x,p1.x,u1),yB0=nfLerp(p0.y,p1.y,u1);
+      const xA1=nfLerp(p3.x,p2.x,u0),yA1=nfLerp(p3.y,p2.y,u0);
+      const xB1=nfLerp(p3.x,p2.x,u1),yB1=nfLerp(p3.y,p2.y,u1);
+      /* 先沿 u 把 4 行各插一次（A0..A3 = 4 个纵向控制点，各带 rgb），再沿 v 插值 */
+      const A0=[0,0,0],A1=[0,0,0],A2=[0,0,0],A3=[0,0,0];
+      for(let ch=0;ch<3;ch++){
+        A0[ch]=nfCR(CC[O0[0]+ch],CC[O0[1]+ch],CC[O0[2]+ch],CC[O0[3]+ch],uc);
+        A1[ch]=nfCR(CC[O1[0]+ch],CC[O1[1]+ch],CC[O1[2]+ch],CC[O1[3]+ch],uc);
+        A2[ch]=nfCR(CC[O2[0]+ch],CC[O2[1]+ch],CC[O2[2]+ch],CC[O2[3]+ch],uc);
+        A3[ch]=nfCR(CC[O3[0]+ch],CC[O3[1]+ch],CC[O3[2]+ch],CC[O3[3]+ch],uc);
       }
-      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(d.x,d.y);ctx.lineTo(e.x,e.y);
-      ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-    }
-    // v2.24：不再画阶梯硬边线（原作缓波花海没有台地边缘）
-    // v2.24：在已填充的地形格上撒密集花朵（沿 depth 排序，近处覆盖远处）
-    if(QUALITY.trees!==false)drawCellFlowers(c);
-    // Forge 海面波光点：只留在深水（浅海已铺花）
-    if(QUALITY.seaSparkle&&c.sea&&c.h<-4.5&&hash2((c.x0/25|0)+((game.time*7)|0),(c.z0/25|0)-11)>0.86){
-      const sp=project({x:c.mx,y:visualH(c.mx,c.mz)+0.4,z:c.mz});
-      if(sp){ctx.fillStyle='rgba(226,248,255,0.9)';ctx.fillRect(sp.x,sp.y,1.6,1.6);}
-    }
-    // v2.23 花枝：几片花瓣 + 花心，替代原来的锥形松树（花海风格）
-    if(c.tree){
-      const tp=project({x:c.mx,y:visualH(c.mx,c.mz)+1.2,z:c.mz});
-      if(tp){
-        const s=clamp(tp.s*1.4,1.6,9);
-        const pc=MEADOW_MAT[2+Math.abs(((c.mx|0)*7+(c.mz|0))%4)];
-        ctx.fillStyle=`rgb(${pc[0]},${pc[1]},${pc[2]})`;
-        for(let k=0;k<5;k++){
-          const a=k/5*Math.PI*2;
-          ctx.beginPath();
-          ctx.ellipse(tp.x+Math.cos(a)*s*0.9,tp.y+Math.sin(a)*s*0.9,s*0.72,s*0.48,a,0,Math.PI*2);
-          ctx.fill();
+      for(let sj=0;sj<SUB;sj++){
+        const v0=sj*inv,v1=v0+inv,vc=(v0+v1)*0.5;
+        const ax=nfLerp(xA0,xA1,v0),ay=nfLerp(yA0,yA1,v0);
+        const bx=nfLerp(xB0,xB1,v0),by=nfLerp(yB0,yB1,v0);
+        const dx2=nfLerp(xB0,xB1,v1),dy2=nfLerp(yB0,yB1,v1);
+        const ex=nfLerp(xA0,xA1,v1),ey=nfLerp(yA0,yA1,v1);
+        const qcx=(ax+bx+dx2+ex)*0.25,qcy=(ay+by+dy2+ey)*0.25;
+        /* v2.30 水下地形本身就着水色。
+           之前"哪里是水"只由水面多边形（按 vh=0.45 等值线裁剪）回答，地形那层
+           永远画沙/草。两套边界只要错开一点点 —— 子片是屏幕空间线性插值、水面
+           节点是世界坐标精确投影，透视下本来就不重合 —— 就会在岸边露出地形色。
+           现在地形自己也按同一条水线混入水色（1.6 单位宽的柔和过渡带），水面多
+           边形退化成"加波纹高光"的一层：即便它少盖了一两个像素，露出来的也是
+           水色，不是河底。 */
+        const hc=nfLerp(nfLerp(CY[0],CY[1],uc),nfLerp(CY[3],CY[2],uc),vc);
+        let r=clamp(nfCR(A0[0],A1[0],A2[0],A3[0],vc)+0.5,0,255)|0;
+        let gg=clamp(nfCR(A0[1],A1[1],A2[1],A3[1],vc)+0.5,0,255)|0;
+        let bb=clamp(nfCR(A0[2],A1[2],A2[2],A3[2],vc)+0.5,0,255)|0;
+        const wm=nfWaterMix(hc);
+        if(wm>0.004){
+          const wc=nfWaterColor(qcy,Math.max(0,LVW-hc));
+          r=Math.round(nfLerp(r,wc[0],wm));
+          gg=Math.round(nfLerp(gg,wc[1],wm));
+          bb=Math.round(nfLerp(bb,wc[2],wm));
         }
-        ctx.fillStyle='rgba(255,226,120,0.95)';
-        ctx.beginPath();ctx.arc(tp.x,tp.y,s*0.42,0,Math.PI*2);ctx.fill();
+        /* 相邻多边形各自抗锯齿 → 共享边上留下亮缝；沿中心外扩压住 */
+        let n=EX/Math.max(0.001,Math.hypot(ax-qcx,ay-qcy));const ax2=qcx+(ax-qcx)*(1+n),ay2=qcy+(ay-qcy)*(1+n);
+        n=EX/Math.max(0.001,Math.hypot(bx-qcx,by-qcy));const bx2=qcx+(bx-qcx)*(1+n),by2=qcy+(by-qcy)*(1+n);
+        n=EX/Math.max(0.001,Math.hypot(dx2-qcx,dy2-qcy));const dx3=qcx+(dx2-qcx)*(1+n),dy3=qcy+(dy2-qcy)*(1+n);
+        n=EX/Math.max(0.001,Math.hypot(ex-qcx,ey-qcy));const ex2=qcx+(ex-qcx)*(1+n),ey2=qcy+(ey-qcy)*(1+n);
+        ctx.beginPath();ctx.moveTo(ax2,ay2);ctx.lineTo(bx2,by2);ctx.lineTo(dx3,dy3);ctx.lineTo(ex2,ey2);
+        ctx.fillStyle=nfRGB(r,gg,bb);ctx.fill();
       }
     }
+    if(c.minH<LVW)drawBayWater(c);
   }
+  TERR_SCALE=1;
+  ctx=mainCtx;
+  ctx.imageSmoothingEnabled=true;
+  /* 双线性放大后，子片之间剩下的 3~5 级色差仍能连成一条条直线；
+     合成时再糊 1.2px，把"平涂块"彻底变成渐变。只对这张小图做一次，代价很低。 */
+  const canFilter=(typeof ctx.filter==='string');
+  if(canFilter)ctx.filter='blur(1.2px)';
+  ctx.drawImage(gbuf,0,0,gbuf.width,gbuf.height,0,0,CW,CH);
+  if(canFilter)ctx.filter='none';
+  drawFarTrees();                    // v2.32 裙边上的远景树（合批，先画远的）
+  /* 满分辨率细节层 */
+  for(const c of cells){
+    drawCellGrass(c);
+    if(QUALITY.trees!==false)drawCellShrubs(c);
+    if(c.tree)drawCellTrees(c);
+  }
+  drawShoreFoam();
 }
+/* 树只长在岸上、且不在最高那圈秃岩上 */
+function vbTreeGate(vh){ return vh>0.9&&vh<14.2; }
 function groundCircle(x,z,r,fill,stroke,h){
   const yy=(h===undefined?terrainH(x,z):h)+0.5;
   const pts=[];
@@ -2495,7 +3688,7 @@ function drawPlayer(){
   if(player.roll&&!player.dive){
     const r=player.roll;
     const ang=r.ang||0;
-    const h=8.5*p.s, w=h;
+    const h=10.5*p.s, w=h;
     ctx.save();
     ctx.translate(p.x,p.y-h*0.55);
     ctx.rotate(ang);
@@ -2518,7 +3711,7 @@ function drawPlayer(){
       ctx.restore();
     }
     ctx.restore();
-  }else if(!drawSprite(playerSprite,player.pos.x,player.pos.y-1.5,player.pos.z,8.5,false)){
+  }else if(!drawSprite(playerSprite,player.pos.x,player.pos.y-1.5,player.pos.z,10.5,false)){
     const tailP=V.add(player.pos,V.mul(player.dir,-7));tailP.y-=1;
     const tail=project(tailP)||{x:p.x,y:p.y+10,s:p.s};
     const dx=p.x-tail.x,dy=p.y-tail.y,l=Math.hypot(dx,dy)||1;
@@ -2562,23 +3755,30 @@ function drawClouds(){
       }
       if(keep<=0.04)continue;
       const base={x:c.x+p.dx,y:FORGE_CLOUD_ALT,z:c.z+p.dz};
-      // v2.24 暖云：底面暖紫灰、侧面粉橘、顶面奶油金（原作 cloudTint #ffdcc6）
-      const under=project({x:base.x,y:FORGE_CLOUD_ALT-1.4,z:base.z});
-      if(under){cctx.globalAlpha=0.40*keep;cctx.fillStyle='rgb(168,146,170)';
-        cctx.beginPath();cctx.ellipse(under.x,under.y,Math.max(1,p.r*under.s*0.94),Math.max(1,p.r*under.s*0.20),0,0,Math.PI*2);cctx.fill();}
-      const side=project({x:base.x,y:FORGE_CLOUD_ALT+0.4,z:base.z});
-      if(side){
-        const f=p.tk/(FORGE_CK-1);
-        cctx.globalAlpha=0.72*keep;
-        cctx.fillStyle=`rgb(${Math.round(226+22*f)},${Math.round(186+34*f)},${Math.round(180+40*f)})`;
-        cctx.beginPath();cctx.ellipse(side.x,side.y,Math.max(1,p.r*side.s*0.98),Math.max(1,p.r*side.s*0.25),0,0,Math.PI*2);cctx.fill();
+      /* v2.38：云画在地形之后，必须自己做深度遮挡——否则山背后的云会透出来。
+         按 puff 中心做视线测试；近处（水平 40 内）不测，玩家穿云时不被自己脚下的地形误挡。 */
+      const cdx=base.x-cam.pos.x,cdz=base.z-cam.pos.z;
+      if(cdx*cdx+cdz*cdz>1600 &&
+         sightBlocked(cam.pos.x,cam.pos.y,cam.pos.z,base.x,FORGE_CLOUD_ALT,base.z,6,1))continue;
+      /* 三层：底部紫灰（背光）、中段粉橘（天光）、顶部奶油金（低日照直射）。
+         椭圆的纵向半径取 0.5r —— 之前只有 0.2r，云被压成一张张薄饼。 */
+      const f=p.tk/(FORGE_CK-1);
+      const under=project({x:base.x,y:FORGE_CLOUD_ALT-1.2,z:base.z});
+      if(under){
+        cctx.globalAlpha=0.42*keep;cctx.fillStyle='rgb(150,126,146)';
+        cctx.beginPath();cctx.ellipse(under.x,under.y,Math.max(1,p.r*under.s*0.92),Math.max(1,p.r*under.s*0.34),0,0,Math.PI*2);cctx.fill();
       }
-      const top=project({x:base.x,y:FORGE_CLOUD_ALT+1.0+p.tk*0.12,z:base.z});
+      const side=project({x:base.x,y:FORGE_CLOUD_ALT+0.2,z:base.z});
+      if(side){
+        cctx.globalAlpha=0.86*keep;
+        cctx.fillStyle=`rgb(${Math.round(214+30*f)},${Math.round(174+40*f)},${Math.round(168+42*f)})`;
+        cctx.beginPath();cctx.ellipse(side.x,side.y,Math.max(1,p.r*side.s*1.35),Math.max(1,p.r*side.s*0.46),0,0,Math.PI*2);cctx.fill();
+      }
+      const top=project({x:base.x,y:FORGE_CLOUD_ALT+2.0+p.tk*0.2,z:base.z});
       if(top){
-        const ft=Math.min(1,p.tk/2);
-        cctx.globalAlpha=0.95*keep;
-        cctx.fillStyle=`rgb(${Math.round(248+7*ft)},${Math.round(238+12*ft)},${Math.round(224+20*ft)})`;
-        cctx.beginPath();cctx.ellipse(top.x,top.y,Math.max(1,p.r*top.s*0.94),Math.max(1,p.r*top.s*0.23),0,0,Math.PI*2);cctx.fill();
+        cctx.globalAlpha=0.90*keep;
+        cctx.fillStyle=`rgb(${Math.round(240+13*f)},${Math.round(222+20*f)},${Math.round(198+26*f)})`;
+        cctx.beginPath();cctx.ellipse(top.x,top.y,Math.max(1,p.r*top.s*1.15),Math.max(1,p.r*top.s*0.42),0,0,Math.PI*2);cctx.fill();
       }
     }
   }
@@ -2756,9 +3956,21 @@ function drawParticles(){
       ctx.beginPath();ctx.moveTo(l,0);ctx.lineTo(0,-w);ctx.lineTo(-l*0.6,0);ctx.lineTo(0,w);ctx.closePath();
       ctx.fillStyle=p.color;ctx.fill();
     }else if(p.kind==='petal'){
-      // v2.23：花瓣 —— 椭圆单瓣 + 轻微透明瓣尖，随风自转
+      /* v2.24c 花瓣：先沿运动方向拉一条渐隐短拖尾，再画自转瓣体。
+         只有瓣体没有拖尾时，高速下像静止的纸片，读不出 Petalwake 的流动感。 */
+      /* 近处花瓣必须封顶：从身后花丛生成时可能紧贴相机，不封顶会糊成满屏大椭圆。 */
+      const r=clamp(p.size*s.s*0.5,1.2,7);
+      if(p.v){
+        const tx=s.x-clamp(p.v.x*0.55,-14,14), ty=s.y+clamp(p.v.y*0.55,-10,14);
+        const ddx=tx-s.x,ddy=ty-s.y,dl=Math.hypot(ddx,ddy)||1;
+        // 从瓣体后缘起线，避免穿过瓣心形成“箭头”形
+        const sx=s.x-ddx/dl*r*0.5, sy=s.y-ddy/dl*r*0.5;
+        const g=ctx.createLinearGradient(sx,sy,tx,ty);
+        g.addColorStop(0,p.color);g.addColorStop(1,'rgba(255,255,255,0)');
+        ctx.strokeStyle=g;ctx.lineWidth=Math.max(1,r*0.45);ctx.lineCap='round';
+        ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(tx,ty);ctx.stroke();
+      }
       ctx.translate(s.x,s.y);ctx.rotate(p.rot||0);
-      const r=Math.max(1.5,p.size*s.s*0.5);
       ctx.beginPath();ctx.ellipse(0,0,r,r*0.52,0,0,Math.PI*2);
       ctx.fillStyle=p.color;ctx.fill();
     }else{
@@ -2783,8 +3995,61 @@ function drawProjectiles(){
 }
 /* v2.7 敌情雷达：右下角圆形雷达，按主角朝向旋转（正上方 = 主角前方）。
    解决"飞远了不知道敌人在哪"。刻度 60 丈/圈。 */
+/* v2.33 雷达锚点：不再写死像素，直接量 #tb / #joy 的矩形做避让。
+   v2.31 用的是 (W-70, R+30) —— 在 844×390 的模拟视口上够用，但真机横屏
+   带地址栏时可视高度只有 300~330，按钮组（高 212）顶边会升到 y≈70~120，
+   正好顶到雷达底边（78+48=126），于是又被"升降"压住。
+   现在按优先级挑第一个不与按钮组/摇杆相交、且完整落在屏内的位置：
+   右上角 → 按钮组正上方 → 按钮组左侧 → 摇杆上方；都放不下就缩半径再试。
+   结果按视口尺寸缓存，仅在旋转/改变尺寸时重算。 */
+const _radarCache={key:'',v:null};
+function radarAnchor(){
+  if(!IS_TOUCH)return {cx:W-96,cy:H-96,R:78};
+  const land=W>H;
+  const key=W+'x'+H;
+  if(_radarCache.key===key&&_radarCache.v)return _radarCache.v;
+  /* resize() 里 W/H 用的是 window.innerWidth（CSS 像素），绘制坐标也在 CSS 像素下，
+     getBoundingClientRect 同样是 CSS 像素 —— 两套坐标天然同单位，不再换算。 */
+  const rectOf=el=>{
+    if(!el)return null;
+    const r=el.getBoundingClientRect();
+    if(!r.width&&!r.height)return null;
+    return {l:r.left,t:r.top,r:r.right,b:r.bottom};
+  };
+  const tb=rectOf(document.getElementById('tb'));
+  const jy=rectOf(document.getElementById('joy'));
+  const pad=10;
+  const overlap=(a,cx,cy,R)=>cx+R>a.l&&cx-R<a.r&&cy+R>a.t&&cy-R<a.b;
+  const clash=(cx,cy,R)=>(tb&&overlap(tb,cx,cy,R))||(jy&&overlap(jy,cx,cy,R));
+  const inside=(cx,cy,R)=>cx-R>=2&&cx+R<=W-2&&cy-R>=2&&cy+R<=H-2;
+  const slots=R=>{
+    const out=[];
+    if(land){
+      out.push([W-R-pad-8,R+pad+6]);           // 首选：右上角（顶部，不占画面主体）
+      if(tb)out.push([W-R-pad,tb.t-pad-R]);    // 其次：按钮组正上方
+      if(tb)out.push([tb.l-pad-R,(tb.t+tb.b)*0.5]); // 再次：按钮组左侧（垂直居中）
+      if(jy)out.push([W-R-pad,jy.t-pad-R]);    // 最后：摇杆上方
+    }else{
+      out.push([W-R-pad,Math.max(R+pad,H-300)]); // 竖屏原位
+      if(tb)out.push([W-R-pad,tb.t-pad-R]);
+      if(tb)out.push([tb.l-pad-R,(tb.t+tb.b)*0.5]);
+      out.push([W-R-pad,R+pad]);
+    }
+    return out;
+  };
+  let pick=null;
+  for(const R of [land?48:54,land?40:46,land?34:38]){
+    for(const [cx,cy] of slots(R)){
+      if(inside(cx,cy,R)&&!clash(cx,cy,R)){pick={cx,cy,R};break;}
+    }
+    if(pick)break;
+  }
+  if(!pick){const R=land?34:38;pick={cx:W-R-pad,cy:R+pad,R};}
+  _radarCache.key=key;_radarCache.v=pick;
+  return pick;
+}
 function drawRadar(){
-  const cx=IS_TOUCH?W-64:W-96, cy=IS_TOUCH?Math.max(170,H-300):H-96, R=IS_TOUCH?54:78;
+  const {cx,cy,R}=radarAnchor();
   const range=180;                       // 雷达显示半径（丈）
   ctx.save();
   // 底盘
@@ -2826,95 +4091,224 @@ function drawRadar(){
   ctx.beginPath();ctx.moveTo(cx,cy-7);ctx.lineTo(cx-5,cy+5);ctx.lineTo(cx+5,cy+5);ctx.closePath();ctx.fill();
   ctx.restore();
 }
-function drawHUD(){
-  const bar=(x,y,w,h,v,max,c1,c2,label)=>{
-    ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(x,y,w,h);
-    const g=ctx.createLinearGradient(x,y,x+w,y);g.addColorStop(0,c1);g.addColorStop(1,c2);
-    ctx.fillStyle=g;ctx.fillRect(x,y,w*clamp(v/max,0,1),h);
-    ctx.fillStyle='#f4efe2';ctx.font='12px "Microsoft YaHei"';
-    ctx.fillText(`${label} ${Math.round(v)}/${max}`,x,y-5);
+/* v2.34：技能自动使用开关。默认四个技能都参与自动攻击，
+   点一下切到 OFF 后 evaluateAutoSpell() 会跳过它；手动 1/2/3/4 不受影响。 */
+let _spellBarSig='';
+function toggleAutoSpell(key){
+  if(shopOpen||!(key in SPELLS))return;   // v2.36：商店打开时不响应技能按钮
+  player.autoSpells[key]=player.autoSpells[key]===false;
+  syncSpellBar(true);
+}
+function syncSpellBar(force){
+  if(!player.autoSpells)return;
+  const sig=SPELL_ORDER.map(k=>((player.autoSpells[k]!==false)?'1':'0')+
+                               ((player.cds[k]>0)?'c':'')).join('');
+  if(!force&&sig===_spellBarSig)return;
+  _spellBarSig=sig;
+  const bar=document.getElementById('spellBar');if(!bar)return;
+  for(const b of bar.children){
+    const k=b.dataset.spell,on=player.autoSpells[k]!==false;
+    b.classList.toggle('off',!on);
+    b.classList.toggle('cool',player.cds[k]>0);
+    /* v2.36：图标化，只留一个字 + 状态点，完整名称放 title */
+    b.innerHTML=`${({sword:'剑',fire:'火',ice:'冰',lightning:'雷'})[k]||spellName(k).charAt(0)}<b>${on?'●':'○'}</b>`;
+    b.title=`${spellName(k)} · ${on?'自动开启（点击关闭）':'自动关闭（点击开启）'}`;
+  }
+}
+function initSpellBar(){
+  const bar=document.getElementById('spellBar');if(!bar||bar.childElementCount)return;
+  for(const key of SPELL_ORDER){
+    const b=document.createElement('button');b.type='button';b.dataset.spell=key;
+    b.addEventListener('mousedown',e=>e.stopPropagation());
+    b.addEventListener('click',e=>{e.stopPropagation();toggleAutoSpell(key);});
+    b.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();toggleAutoSpell(key);},{passive:false});
+    bar.appendChild(b);
+  }
+  syncSpellBar(true);
+}
+initSpellBar();
+
+/* ===== v2.36 宗门坊市界面（canvas 覆盖层，仿排行榜） =====
+   六件物品固定一屏，点击购买按钮即时扣灵石并生效；B/G 或点"返回"关闭。
+   商店打开时 update() 暂停，避免看商店时被怪打死。 */
+let shopOpen=false;
+const shopRects=[];
+function syncShopBtn(){
+  const b=document.getElementById('stoneNum');
+  if(b)b.textContent=String(shopSave.stones);
+}
+function toggleShop(){
+  shopOpen=!shopOpen;
+  if(shopOpen){boardOpen=false;shopRects.length=0;}
+  syncShopBtn();
+}
+function initShopBtn(){
+  const b=document.getElementById('shopBtn');if(!b)return;
+  b.addEventListener('mousedown',e=>e.stopPropagation());
+  b.addEventListener('click',e=>{e.stopPropagation();toggleShop();});
+  b.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();toggleShop();},{passive:false});
+}
+initShopBtn(); syncShopBtn();
+/* ===== v2.37 师尊传音面板 =====
+   达成目标时展示「返回宗门 / 继续历练」；选择继续后收起为小徽标，
+   之后随时可点徽标或按 T 返宗。面板打开时游戏不暂停，保持秘境压力。 */
+function syncGoalPanel(){
+  const p=document.getElementById('goalPanel'); if(!p)return;
+  const ready=!game.over&&!boardOpen&&!shopOpen&&isGoalReady();
+  p.classList.toggle('show',ready);
+  p.classList.toggle('badge',ready&&!game.goalPrompt);
+  const story=document.getElementById('goalStory');
+  if(story)story.textContent=L('goalStory');
+  const rb=document.getElementById('returnBtn'), cb=document.getElementById('continueBtn');
+  if(rb)rb.textContent=L('goalReturn');
+  if(cb)cb.textContent=L('goalContinue');
+  const badge=document.getElementById('goalBadge');
+  if(badge)badge.textContent=L('goalBadge');
+}
+function continueGoal(){
+  game.goalPrompt=false;
+  player.lastCast=L('goalContinueTip');
+  syncGoalPanel();
+}
+function initGoalPanel(){
+  const bind=(id,fn)=>{
+    const el=document.getElementById(id); if(!el)return;
+    el.addEventListener('mousedown',e=>e.stopPropagation());
+    el.addEventListener('click',e=>{e.stopPropagation();fn();});
+    el.addEventListener('touchstart',e=>{e.preventDefault();e.stopPropagation();fn();},{passive:false});
   };
-  bar(22,54,190,12,player.hp,player.maxHp,'#c8503c','#e07a5f',L('hp'));
-  bar(22,86,190,12,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
-  const titleSize=Math.min(20,Math.max(14,Math.floor(W/24)));
+  bind('returnBtn',()=>returnToSect());
+  bind('continueBtn',()=>continueGoal());
+  /* v2.38：小徽标一步直达——点击即返宗结算并进入青云宗炼气榜，不再要求先展开面板。 */
+  bind('goalBadge',()=>{ if(returnToSect()){ boardOpen=true; boardPage=0; } });
+}
+initGoalPanel(); syncGoalPanel();
+function drawShop(){
+  const U=UI_LANG==='zh';
+  shopRects.length=0;
+  const rowH=clamp(Math.floor((H-86)/SHOP_ITEMS.length),26,42);
+  const panelW=Math.min(W-12,560),panelH=58+SHOP_ITEMS.length*rowH+26;
+  const x0=Math.round((W-panelW)/2),y0=Math.max(2,Math.round((H-panelH)/2-6));
+  ctx.fillStyle='rgba(10,18,18,0.78)';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(14,26,24,0.96)';ctx.fillRect(x0,y0,panelW,panelH);
+  ctx.strokeStyle='rgba(255,212,94,0.55)';ctx.lineWidth=1.5;
+  ctx.strokeRect(x0+0.5,y0+0.5,panelW-1,panelH-1);
+  const g=ctx.createLinearGradient(x0,y0,x0+panelW,y0);
+  g.addColorStop(0,'rgba(255,212,94,0.28)');g.addColorStop(1,'rgba(255,212,94,0.02)');
+  ctx.fillStyle=g;ctx.fillRect(x0,y0,panelW,34);
+  ctx.textAlign='center';ctx.fillStyle='#ffd45e';
+  ctx.font=`bold ${Math.min(18,Math.max(14,Math.floor(W/26)))}px "Microsoft YaHei"`;
+  ctx.fillText(U?'宗门坊市 · 神兵功法':'Sect Market',W/2,y0+23);
+  ctx.font='12px "Microsoft YaHei"';ctx.fillStyle='#ffe9a8';
+  ctx.fillText(`${U?'灵石':'Stones'} ${shopSave.stones}`,W/2,y0+48);
+  ctx.textAlign='left';
+  for(let i=0;i<SHOP_ITEMS.length;i++){
+    const it=SHOP_ITEMS[i],lv=shopLv(it.id),max=lv>=SHOP_MAX_LV,price=shopPrice(it);
+    const ry=y0+58+i*rowH;
+    if(i%2===0){ctx.fillStyle='rgba(255,255,255,0.035)';ctx.fillRect(x0+8,ry-2,panelW-16,rowH-2);}
+    ctx.fillStyle='#f4efe0';
+    ctx.font=`bold ${rowH>=34?13:11}px "Microsoft YaHei"`;
+    ctx.fillText(`${it.name} · ${it.cat}  Lv${lv}/${SHOP_MAX_LV}`,x0+18,ry+(rowH>=34?14:rowH*0.6));
+    if(rowH>=34){
+      ctx.font='11px "Microsoft YaHei"';ctx.fillStyle='rgba(220,230,215,0.78)';
+      ctx.fillText(it.desc,x0+18,ry+30);
+    }
+    const bw=Math.min(94,Math.max(56,panelW*0.24)),bx=x0+panelW-bw-16,by=ry+2;
+    const can=!max&&shopSave.stones>=price;
+    ctx.fillStyle=can?'rgba(70,120,96,0.85)':'rgba(70,76,76,0.7)';
+    ctx.fillRect(bx,by,bw,rowH-8);
+    ctx.strokeStyle=can?'rgba(190,255,220,.6)':'rgba(190,195,195,.3)';
+    ctx.lineWidth=1;ctx.strokeRect(bx+0.5,by+0.5,bw-1,rowH-9);
+    ctx.textAlign='center';ctx.font=`bold ${rowH>=34?12:10}px "Microsoft YaHei"`;
+    ctx.fillStyle=can?'#f4fff8':'rgba(230,230,230,0.6)';
+    ctx.fillText(max?(U?'满级':'MAX'):`${price}${U?'灵石':'S'}`,bx+bw/2,by+(rowH-8)*0.68);
+    ctx.textAlign='left';
+    shopRects.push({id:it.id,x:bx,y:by,w:bw,h:rowH-8});
+  }
+  const cw=94,cx=W/2-cw/2,cy=y0+panelH-25;
+  ctx.fillStyle='rgba(120,60,60,0.8)';ctx.fillRect(cx,cy,cw,21);
+  ctx.textAlign='center';ctx.font='bold 12px "Microsoft YaHei"';ctx.fillStyle='#fff';
+  ctx.fillText(U?'返回 (B)':'Back (B)',W/2,cy+15);ctx.textAlign='left';
+  shopRects.push({id:'__close__',x:cx,y:cy,w:cw,h:21});
+  if(panelH<H-16){
+    ctx.textAlign='center';ctx.fillStyle='rgba(244,239,226,0.75)';ctx.font='11px "Microsoft YaHei"';
+    ctx.fillText(U?'点击购买 · B / Esc 返回':'Click to buy · B/Esc to close',
+                 W/2,Math.min(H-6,y0+panelH+16));
+    ctx.textAlign='left';
+  }
+}
+function shopClick(x,y){
+  for(const r of shopRects){
+    if(x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h){
+      if(r.id==='__close__')shopOpen=false;
+      else buyShopItem(r.id);
+      return true;
+    }
+  }
+  return false;
+}
+function drawHUD(){
+  /* v2.34：状态条内嵌文字，三条从 190px 宽压到 132px；
+     下面的说明文字合并成 4 行（原来手机要排到 y=250）。 */
+  const X=12,BW=132,U=UI_LANG==='zh';
+  const bar=(y,h,v,max,c1,c2,label,valueText)=>{
+    ctx.fillStyle='rgba(24,44,40,0.62)';ctx.fillRect(X,y,BW,h);
+    const g=ctx.createLinearGradient(X,y,X+BW,y);
+    g.addColorStop(0,c1);g.addColorStop(1,c2);
+    ctx.fillStyle=g;ctx.fillRect(X,y,BW*clamp(v/max,0,1),h);
+    ctx.font=`bold ${h>=12?11:10}px "Microsoft YaHei"`;ctx.textBaseline='middle';
+    ctx.fillStyle='#f4fff8';ctx.fillText(label,X+5,y+h*0.5+0.5);
+    ctx.textAlign='right';ctx.fillText(valueText||`${Math.round(v)}/${max}`,X+BW-5,y+h*0.5+0.5);
+    ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  };
+  const titleSize=Math.min(16,Math.max(13,Math.floor(W/32)));
   ctx.fillStyle='#25453f';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
-  ctx.fillText(L('title')+' v2.24',22,titleSize+10);
-  // v2.8：练气等级 + 经验条
-  const maxed=pLevel()>=LEVEL_MAX, need=maxed?1:expToNext(pLevel()), expY=118;
-  ctx.fillStyle='rgba(24,44,40,0.55)';ctx.fillRect(22,expY,190,8);
-  const eg=ctx.createLinearGradient(22,expY,212,expY);eg.addColorStop(0,'#9b6fd0');eg.addColorStop(1,'#d9b8ff');
-  ctx.fillStyle=eg;ctx.fillRect(22,expY,190*clamp(maxed?1:player.exp/need,0,1),8);
-  ctx.fillStyle='#4a3a6a';ctx.font='12px "Microsoft YaHei"';
-  ctx.fillText(maxed?L('realmFull'):L('realm',pLevel(),Math.floor(player.exp),need),22,expY-5);
-  ctx.fillStyle='#25453f';ctx.font='13px "Microsoft YaHei"';
-  ctx.fillText(L('kills',game.kills,game.score),22,140);
+  ctx.fillText(L('title')+' v2.39',X,titleSize+5);
+  bar(26,13,player.hp,player.maxHp,'#c8503c','#e07a5f',L('hp'));
+  bar(42,13,player.qi,player.maxQi,'#3f9a8a','#7fe0cc',L('qi'));
+  /* v2.36 经验条：填充用真实经验/需求，右侧文字也显示同一组数（原来错误地显示 0/1） */
+  const maxed=pLevel()>=LEVEL_MAX,need=maxed?1:expToNext(pLevel());
+  bar(58,10,maxed?1:player.exp,maxed?1:need,'#9b6fd0','#d9b8ff',
+      maxed?L('realmFull'):`${U?'练气':'Lv'}${pLevel()}`,
+      maxed?(U?'圆满':'MAX'):`${Math.floor(player.exp)}/${need}`);
   const ground=terrainH(player.pos.x,player.pos.z);
-  ctx.fillText(L('altitude',Math.round(player.pos.y-Math.max(ground,0)),Math.round(player.targetAlt)),22,158);
-  ctx.fillText(`${L('ground'+(ground<0?'Sea':'Land'))}   ${L('viewAngle')} ${cam.pitches[cam.pitchIdx]}°${player.inCloud?'   '+L('inCloud'):''}`,22,176);
-  /* v2.17：气血提示只有两态 —— 掉血中显示真实回血速率，满血也显示速率。
-     v2.16 的「受击后 0.6s 停顿」已按用户要求去掉（无条件持续回复），故无停顿态。 */
-  if(player.hp<player.maxHp){
-    ctx.fillStyle='rgba(60,140,120,0.9)';ctx.fillText(L('hpRegen',pRegenHp().toFixed(1)),22,194);
-  }else{
-    ctx.fillStyle='rgba(90,120,112,0.8)';ctx.fillText(L('hpRegenFull',pRegenHp().toFixed(1)),22,194);
-  }
-  /* v2.14：手机端只显示玩家还能操作的信息。
-     技能行(1/2/3/4)、自动攻击/视野切换、相机档位在手机已无对应控件，
-     继续显示只会误导；桌面保持原样。 */
-  if(!IS_TOUCH){
-    ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
-    ctx.fillText(`${L(player.auto?'autoOn':'autoOff')}   ${L(player.showVision?'visionOn':'visionOff')} ${Math.round(pVisionRange())}${UI_LANG==='zh'?'米':' m'}`,22,214);
-    ctx.fillStyle='#25453f';
-    const spellLine=(idx,name,key)=>{
-      const r=spellRange(key,'player').toFixed(0), cd=player.cds[key];
-      const status=cd>0?'CD'+cd.toFixed(1):L('ready');
-      const extra=key==='lightning'?' '+L('autoLock'):'';
-      ctx.fillText(`${idx} ${name} ${r}${UI_LANG==='zh'?'米':' m'}${extra} ${status}`,22,idx==='1'?234:(idx==='2'?252:(idx==='3'?270:288)));
-    };
-    const SN=SPELL_NAME_I18N[UI_LANG]||SPELL_NAME_I18N.zh;
-    spellLine('1',SN.sword,'sword');spellLine('2',SN.fire,'fire');
-    spellLine('3',SN.ice,'ice');spellLine('4',SN.lightning,'lightning');
-    ctx.fillStyle='rgba(45,95,88,0.85)';
-    ctx.fillText(L('autoDecision',player.autoChoice,player.lastCast),22,308);
-  }
-  /* v2.16：剑舞状态行。改为显示「耗蓝 / CD / 连段数」，
-     灵力不足时明确提示（否则玩家只会觉得"按了没反应"）。 */
-  const rollY=IS_TOUCH?214:326;
+  const alt=Math.round(player.pos.y-Math.max(ground,0));
+  ctx.font='11px "Microsoft YaHei"';ctx.fillStyle='#25453f';
+  ctx.fillText(`${U?'击杀':'K'} ${game.kills}   ${U?'灵石':'Stones'} ${shopSave.stones}`,X,82);
+  /* v2.36：高度独立成行，带浅色底衬，不再挤在统计行尾巴上 */
+  ctx.fillStyle='rgba(244,239,226,0.72)';ctx.fillRect(X-3,87,BW+6,16);
+  ctx.fillStyle='#1c3b36';ctx.font='bold 12px "Microsoft YaHei"';
+  ctx.fillText(`${U?'高度':'Alt'} ${alt}/${Math.round(player.targetAlt)} ${U?'丈':'m'}`,X-1,99);
+  ctx.font='11px "Microsoft YaHei"';
+  ctx.fillStyle=player.hp<player.maxHp?'rgba(60,140,120,0.95)':'rgba(90,120,112,0.85)';
+  ctx.fillText(`${L('ground'+(ground<0?'Sea':'Land'))} ${cam.pitches[cam.pitchIdx]}°  +${pRegenHp().toFixed(1)}/s${player.inCloud?'  '+L('inCloud'):''}`,X,116);
   const rollSeg=player.roll?(player.roll.seg||1):0;
   let rollTxt,rollCol;
   if(player.cds.roll>0){
-    rollTxt=L('rollCd',player.cds.roll.toFixed(1));
-    rollCol='rgba(150,86,120,0.9)';
+    rollTxt=`${U?'剑舞':'Roll'} ${player.cds.roll.toFixed(1)}s`;rollCol='rgba(150,86,120,0.9)';
   }else if(player.qi<ROLL_QI_COST){
-    rollTxt=L('rollNoQi',ROLL_QI_COST);
-    rollCol='rgba(180,80,60,0.95)';
+    rollTxt=`${U?'剑舞':'Roll'} ${U?'灵力不足':'no Qi'}`;rollCol='rgba(180,80,60,0.95)';
   }else{
-    rollTxt=L('rollReady',ROLL_QI_COST);
-    rollCol='rgba(120,80,175,0.95)';
+    rollTxt=`${U?'剑舞':'Roll'} ${U?'就绪':'ready'}`;rollCol='rgba(120,80,175,0.95)';
   }
-  if(rollSeg>1) rollTxt+=`   ${L('rollCombo',rollSeg)}`;
-  ctx.fillStyle=rollCol;
-  ctx.fillText(rollTxt,22,rollY);
-  // v2.7：相机档位 + 最近敌人方位提示（手机无相机切换键，隐藏档位）
-  const camY=IS_TOUCH?232:344, nearY=IS_TOUCH?250:362;
-  if(!IS_TOUCH){
-    ctx.fillStyle='rgba(45,95,88,0.85)';
-    ctx.fillText(L('camera',camModeName()),22,camY);
-  }
+  if(rollSeg>1)rollTxt+=` x${rollSeg}`;
+  ctx.fillStyle=rollCol;ctx.fillText(rollTxt,X,131);
   const near=nearestEnemyInfo();
-  if(near){
-    ctx.fillStyle='rgba(180,90,60,0.95)';
-    ctx.fillText(L('nearest',Math.round(near.d),near.dirName),22,nearY);
-  }else{
-    ctx.fillStyle='rgba(90,120,110,0.8)';
-    ctx.fillText(L('noEnemy'),22,nearY);
+  ctx.fillStyle=near?'rgba(180,90,60,0.95)':'rgba(90,120,110,0.8)';
+  ctx.fillText(near?`${U?'敌':'FoE'} ${Math.round(near.d)}${U?'丈':'m'} ${near.dirName}`:L('noEnemy'),X,146);
+  if(!IS_TOUCH){
+    ctx.fillStyle=player.auto?'rgba(35,130,105,0.95)':'rgba(150,80,60,0.9)';
+    ctx.fillText(`${player.auto?L('autoOnBrief'):L('autoOffBrief')}  ${L(player.showVision?'visionOn':'visionOff')}  ${camModeName()}`,X,161);
   }
-  if(!IS_TOUCH){   // 鼠标准星只在桌面有意义
-    ctx.strokeStyle='rgba(37,69,63,0.7)';ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.arc(mouse.x,mouse.y,7,0,Math.PI*2);
-    ctx.moveTo(mouse.x-12,mouse.y);ctx.lineTo(mouse.x-4,mouse.y);
-    ctx.moveTo(mouse.x+4,mouse.y);ctx.lineTo(mouse.x+12,mouse.y);ctx.stroke();
-  }
+  /* v2.37：师尊目标常驻显示；达成后整行转金，提示 T 返宗。 */
+  const goalReady=isGoalReady();
+  const goalY=IS_TOUCH?161:176;
+  ctx.fillStyle=goalReady?'rgba(255,212,94,0.24)':'rgba(244,239,226,0.72)';
+  ctx.fillRect(X-3,goalY-12,BW+6,15);
+  ctx.fillStyle=goalReady?'#5c3f12':'#1c3b36';
+  ctx.font='bold 11px "Microsoft YaHei"';
+  const goalTxt=goalReady?L('goalReady'):L('goalProgress',pLevel(),Math.min(shopSave.stones,GOAL_STONES));
+  ctx.fillText(`${U?'试炼':'Trial'} ${goalTxt}`,X-1,goalY);
   drawRadar();
   /* v2.16：手机翻滚按钮的冷却态。
      注意：翻滚进行中不再算"不可用"——那是连段机制的一部分，
@@ -3022,7 +4416,9 @@ function drawBoard(){
     ctx.textAlign='center'; ctx.fillText(String(abs+1),x+colW[0]/2,ry);
     x+=colW[0];
     ctx.textAlign='left';
-    ctx.fillText(r.name||'—',x,ry);
+    /* v2.37：通关记录前缀 ★，与「返宗通关」图例对应。 */
+    ctx.fillStyle=r.cleared?'#ffd45e':(medal||(isMe?'#ffd45e':'rgba(244,239,226,0.92)'));
+    ctx.fillText((r.cleared?'★ ':'')+(r.name||'—'),x,ry);
     if(isMe){ ctx.fillStyle='#ffd45e'; ctx.font='10px "Microsoft YaHei"'; ctx.fillText('▼',x+colW[1]-14,ry); }
     x+=colW[1];
     ctx.textAlign='center'; ctx.font='13px "Microsoft YaHei"';
@@ -3057,34 +4453,88 @@ function drawBoard(){
   ctx.fillStyle='rgba(200,210,205,0.6)';ctx.font='12px "Microsoft YaHei"';
   /* v2.20：多页时在底部标注页码与翻页提示 */
   const foot=totalPages>1
-    ? L('lbClose')+'  ·  '+L('lbPage',boardPage+1,totalPages)+'  ·  '+L('lbPageTip')
-    : L('lbClose');
+    ? L('lbClose')+'  ·  '+L('lbPage',boardPage+1,totalPages)+'  ·  '+L('lbPageTip')+'  ·  '+L('lbLegendClear')
+    : L('lbClose')+'  ·  '+L('lbLegendClear');
   ctx.fillText(foot,W/2,y0+panelH-12);
   ctx.textAlign='left';
+}
+/* v2.37：窄屏剧情自动折行。Canvas 没有 CSS 换行，这里按当前字体测量逐字断行。 */
+function drawWrapped(text,cx,y,maxW,lineH){
+  const s=String(text),lines=[];let line='';
+  for(let i=0;i<s.length;i++){
+    const ch=s[i];
+    if(line&&ctx.measureText(line+ch).width>maxW){lines.push(line);line=ch;}
+    else line+=ch;
+  }
+  if(line)lines.push(line);
+  for(let i=0;i<lines.length;i++)ctx.fillText(lines[i],cx,y+i*lineH);
+  return lines.length;
+}
+/* v2.37：返宗通关结算。师尊在山门接见，排行榜标记为「返宗通关」。 */
+function drawReturnOverlay(){
+  const U=UI_LANG==='zh';
+  ctx.fillStyle='rgba(16,34,30,0.82)';ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center';
+  const titleSize=Math.min(36,Math.max(22,Math.floor(W/14)));
+  ctx.fillStyle='#ffd45e';ctx.font=`bold ${titleSize}px "Microsoft YaHei"`;
+  ctx.fillText(L('returnTitle'),W/2,H/2-96);
+  ctx.fillStyle='#ffe9a8';ctx.font='bold 14px "Microsoft YaHei"';
+  ctx.fillText(L('returnClear'),W/2,H/2-66);
+  const fs=Math.min(15,Math.max(12,Math.floor(W/27)));
+  const lineH=fs+5, maxW=Math.max(180,W-28);
+  let sy=H/2-38;
+  ctx.fillStyle='rgba(244,239,226,0.95)';ctx.font=`${fs}px "Microsoft YaHei"`;
+  sy+=drawWrapped(L('returnStory1'),W/2,sy,maxW,lineH)*lineH+6;
+  ctx.fillStyle='#ffe9a8';
+  sy+=drawWrapped(L('returnStory2'),W/2,sy,maxW,lineH)*lineH;
+  ctx.fillStyle='#8fe0cc';ctx.font='bold 13px "Microsoft YaHei"';
+  ctx.fillText(`${U?'本局灵石':'Stones'} ${game.score}   ${L('kills').split(' ')[0]} ${game.kills}   ${L('lbStatRealm')} ${L('lbLv',pLevel())}   ${L('lbStatTime')} ${Math.round(game.time)}${L('lbSec')}`,
+               W/2,sy+28);
+  if(game.rankEntry&&!game.rankEntry.overflowed){
+    ctx.fillStyle='#ffd45e';ctx.font='bold 14px "Microsoft YaHei"';
+    ctx.fillText(L('lbTitle')+' · '+L('lbYourRank',game.rankEntry.rank),W/2,sy+56);
+  }
+  ctx.fillStyle='#f4efe2';ctx.font='13px "Microsoft YaHei"';
+  ctx.fillText(IS_TOUCH
+    ? (U?'点画面再来一局 · L 查看青云宗炼气榜':'Tap to restart · L leaderboard')
+    : `${L('returnRestart')}  ·  L ${L('lbTitle')}`,W/2,sy+94);
 }
 function drawOverlay(){
   if(game.flash>0){ctx.fillStyle=`rgba(200,60,50,${game.flash*0.28})`;ctx.fillRect(0,0,W,H);}
   if(!game.started){
     ctx.fillStyle='rgba(20,36,33,0.62)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
-    const big=Math.min(42,Math.floor(W/11));
-    ctx.font=`bold ${big}px "Microsoft YaHei"`;ctx.fillText(L('title'),W/2,H/2-76);
+    /* v2.37：开场即交代「青云宗弟子被丢进秘境」与师尊目标，不再只列键位。 */
+    const big=Math.min(40,Math.floor(W/12));
+    ctx.font=`bold ${big}px "Microsoft YaHei"`;ctx.fillText(L('title'),W/2,H/2-94);
     const infoSize=Math.min(16,Math.floor(W/26));
-    ctx.font=`${infoSize}px "Microsoft YaHei"`;
+    ctx.fillStyle='#8fe0cc';ctx.font=`bold ${Math.max(13,infoSize)}px "Microsoft YaHei"`;
+    ctx.fillText(L('storySect'),W/2,H/2-58);
+    const storySize=Math.max(12,infoSize-1),storyLineH=storySize+5;
+    const storyW=Math.max(180,W-28);
+    let sy=H/2-28;
+    ctx.fillStyle='rgba(244,239,226,0.94)';ctx.font=`${storySize}px "Microsoft YaHei"`;
+    sy+=drawWrapped(L('storyIntro1'),W/2,sy,storyW,storyLineH)*storyLineH;
+    ctx.fillStyle='#ffe9a8';
+    sy+=drawWrapped(L('storyIntro2a'),W/2,sy,storyW,storyLineH)*storyLineH;
+    sy+=drawWrapped(L('storyIntro2b'),W/2,sy,storyW,storyLineH)*storyLineH;
+    ctx.fillStyle='rgba(244,239,226,0.86)';ctx.font=`${Math.max(11,infoSize-2)}px "Microsoft YaHei"`;
+    const ctrlY=sy+10;
     if(IS_TOUCH){
-      ctx.fillText(UI_LANG==='zh'?'御剑凌空 · 山海之间自动斗法':'Fly the sword · auto-cast',W/2,H/2-34);
-      ctx.fillText(UI_LANG==='zh'?'左摇杆飞行 · 右按钮升降/剑舞翻滚':'Left stick: fly · Right: altitude / roll',W/2,H/2+8);
-      ctx.fillStyle='#8fe0cc';ctx.font=`bold ${infoSize+2}px "Microsoft YaHei"`;
-      ctx.fillText(UI_LANG==='zh'?'点画面开始':'Tap to start',W/2,H/2+92);
+      ctx.fillText(UI_LANG==='zh'?'自动前进 · 左摇杆转向（下拉刹车）· 右侧升降/剑舞':'Auto-fly · stick steers (pull down to brake) · right: altitude / roll',W/2,ctrlY);
     }else{
-      ctx.fillText(L('introSub'),W/2,H/2-34);
-      ctx.fillText(L('introKeys'),W/2,H/2+8);
-      ctx.fillText(L('introRoll'),W/2,H/2+36);
-      ctx.fillStyle='#8fe0cc';ctx.font='bold 18px "Microsoft YaHei"';ctx.fillText(L('introStart'),W/2,H/2+92);
+      ctx.fillText(L('introKeys'),W/2,ctrlY);
+      ctx.fillText(L('introRoll'),W/2,ctrlY+20);
     }
+    ctx.fillStyle='#8fe0cc';ctx.font=`bold ${infoSize+2}px "Microsoft YaHei"`;
+    ctx.fillText(L('introStart'),W/2,ctrlY+(IS_TOUCH?42:56));
     ctx.textAlign='left';
   }
   if(game.over){
+    if(game.ending==='return'){
+      drawReturnOverlay();
+      ctx.textAlign='left';
+    }else{
     ctx.fillStyle='rgba(20,36,33,0.7)';ctx.fillRect(0,0,W,H);
     ctx.fillStyle='#f4efe2';ctx.textAlign='center';
     ctx.font=`bold ${Math.min(40,Math.floor(W/11))}px "Microsoft YaHei"`;
@@ -3119,12 +4569,15 @@ function drawOverlay(){
       ctx.fillText(IS_TOUCH?(UI_LANG==='zh'?'点此重看击杀回放':'Tap: replay kill'):L('deadViewReplay'),W/2,H/2+124);
     }
     ctx.textAlign='left';
+    }
   }
   /* v2.17：排行榜覆盖层（L 键开关，任何时候都能看；游戏中会暂停推进） */
   if(boardOpen){
     ctx.fillStyle='rgba(10,18,18,0.72)';ctx.fillRect(0,0,W,H);
     drawBoard();
   }
+  /* v2.36：宗门坊市覆盖层 */
+  if(shopOpen)drawShop();
 }
 function render(){
   const inReplay=!!game.replay;
@@ -3132,10 +4585,17 @@ function render(){
   // v2.20：榜单打开时同样隐藏 —— 底部提示条是 fixed 定位，会压住面板底部的
   //        「关闭排行榜 / 页码 / 翻页提示」，导致小视口下看不到翻页入口。
   const tipEl=document.getElementById('tip');
-  if(tipEl)tipEl.style.display=(inReplay||boardOpen)?'none':(IS_TOUCH?'none':'');
+  if(tipEl)tipEl.style.display=(inReplay||boardOpen||shopOpen||game.over)?'none':(IS_TOUCH?'none':'');
+  syncGoalPanel();   /* v2.37：每帧同步师尊传音面板显示状态 */
   // v2.15：回放期间相机基向量由 updateKillCam 设定，不能再被玩家跟随覆盖
   drawSky(); if(!inReplay)updateCameraBasis();
+  drawMountains();                 // v2.26 三层远山全景（在地形之前，被近处地形遮挡）
   drawTerrain();
+  drawHorizonHaze();               // v2.25 地平线雾，柔化地形远边
+  if(!inReplay)drawWakeTrail();   // 贴地花浪，压在地形上、角色与云之下
+  /* v2.24c：云改到角色之前绘制。此前 drawClouds 在 drawPlayer 之后，
+     近处暖云会把主角整个盖成一团米黄光斑（用户反馈“角色素材没了”）。 */
+  drawClouds();
   if(!inReplay){drawVision(); drawAim(); drawBeams(); drawLightning();}
   // v2.13：复用排序数组，避免每帧分配
   const sorted=render._sorted||(render._sorted=[]);
@@ -3147,7 +4607,6 @@ function render(){
   });
   for(const e of sorted)drawEnemy(e);
   drawPlayer();
-  drawClouds();
   if(inReplay){drawKillCamFx(); drawKillCamGhost(); drawKillCamOverlay();}
   else {drawProjectiles(); drawHUD(); drawOverlay();}
 }

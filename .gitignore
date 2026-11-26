@@ -46,6 +46,9 @@ scripts/.forge_client.json
 scripts/.forge_token.json
 # CDP 自动化测试专用 Chrome profile（仅本地临时数据）
 .chrome-debug-profile/
+.chrome-p4/
+.chrome-prof/
+.chrome-prof2/
 # git 历史重写前的本地备份（含旧历史，绝不入库）
 .git-backup/
 # 微信小游戏工程：用户未授权上 GitHub，仅本地保留
@@ -54,3 +57,10 @@ scripts/31_build_minigame.js
 scripts/32_smoke_minigame.js
 # v2.23 花海飞行原作源码（第三方开源，仅本地参考，不入库）
 reference/
+ref_gamegems/
+
+# 调试/AB 对比截图与中间版本截图，仅本地保留，不入库
+docs/screenshots/_*.png
+docs/screenshots/10-bay-v224.png
+docs/screenshots/11-wake-v224c.png
+docs/screenshots/12-forest-v224e.png

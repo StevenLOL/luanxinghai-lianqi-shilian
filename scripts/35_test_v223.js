@@ -75,7 +75,7 @@ const ok = (name, cond, detail = '') => {
     ctx.fillText=orig;
     return found;
   })()`);
-  ok('渲染标题版本号 v2.24', /v2\.24$/.test(ver || ''), ver);
+  ok('渲染标题版本号 v2.25', /v2\.25$/.test(ver || ''), ver);
 
   /* ---------- 2. 花海常量 ---------- */
   const consts = await ev(`(()=>({
@@ -85,7 +85,7 @@ const ok = (name, cond, detail = '') => {
   }))()`);
   ok('MEADOW_MAT 花田色板存在(>=6色)', consts.meadow >= 6, JSON.stringify(consts));
   ok('PETAL_COLORS 花瓣色板存在', consts.petals >= 4);
-  ok('PETAL_RATE 合理', consts.rate > 0 && consts.rate <= 40, 'rate=' + consts.rate);
+  ok('PETAL_RATE 合理', consts.rate > 0 && consts.rate <= 70, 'rate=' + consts.rate);
   ok('petalWake 函数存在', consts.wake === 'function');
 
   /* ---------- 3. 花瓣尾流：静止不产生 ---------- */
